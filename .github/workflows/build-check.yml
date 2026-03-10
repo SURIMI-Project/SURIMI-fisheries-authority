@@ -1,0 +1,15 @@
+name: Build Check
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Use custom NuGet build check action
+        uses: Official-EwE/Eii.GithubActions/BuildCheckNet80@master    # can also be BuildCheckNet80@v.. etcc
+        with:
+          bsr-token: ${{ secrets.BSR_TOKEN }}
