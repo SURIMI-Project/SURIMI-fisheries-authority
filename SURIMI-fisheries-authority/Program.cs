@@ -16,6 +16,8 @@ namespace SURIMI_fisheries_authority
             builder.Services.AddGrpc(options =>
             {
                 options.Interceptors.Add<ExceptionMetadataInterceptor>();
+                options.MaxReceiveMessageSize = 100 * 1024 * 1024; // 16 MB
+                options.MaxSendMessageSize = 100 * 1024 * 1024; // 16 MB
             });
 
 //            builder.Services.AddSingleton<IEwEController, EwEController>();
