@@ -26,7 +26,7 @@ namespace SURIMI_fisheries_authority.Services
                 //var result = await m_controller.StartAsync();
                 //if (result != 1)
                 //{
-                //    throw new RpcException(new Status(StatusCode.Internal, "Failed to initialise Value Chain"));
+                //    throw new RpcException(new Status(StatusCode.Internal, "Failed to initialise Fisheries Authority"));
                 //}
                 return new InitialiseResponse() { SimulationId = request.SimulationId };
             }
@@ -46,7 +46,7 @@ namespace SURIMI_fisheries_authority.Services
                 //var result = await m_controller.StopAsync();
                 //if (result == false)
                 //{
-                //    throw new RpcException(new Status(StatusCode.Internal, "Failed to finalise Value Chain"));
+                //    throw new RpcException(new Status(StatusCode.Internal, "Failed to finalise Fisheries Authority"));
                 //}
                 return new FinaliseResponse() { SimulationId = request.SimulationId };
             }
@@ -66,7 +66,7 @@ namespace SURIMI_fisheries_authority.Services
                 //var result = await m_controller.StopAsync();
                 //if (result == false)
                 //{
-                //    throw new RpcException(new Status(StatusCode.Internal, "Failed to cancel Value Chain"));
+                //    throw new RpcException(new Status(StatusCode.Internal, "Failed to cancel Fisheries Authority"));
                 //}
                 return new CancelResponse() { SimulationId = request.SimulationId };
             }
