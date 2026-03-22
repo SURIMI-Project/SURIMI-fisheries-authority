@@ -1,21 +1,24 @@
 ﻿using Grpc.Core;
 using Grpc.Surimi;
+using SURIMI.Common.gRPC;
+using SURIMI.Common.gRPC.Services;
 
 namespace SURIMI_fisheries_authority.Services
 {
     public class FisheriesAuthorityWorkflowService : WorkflowService.WorkflowServiceBase
     {
         private readonly ILogger<FisheriesAuthorityWorkflowService> m_logger;
+        private readonly string _version;
 
-        public FisheriesAuthorityWorkflowService(ILogger<FisheriesAuthorityWorkflowService> logger)
+        public FisheriesAuthorityWorkflowService(ILogger<FisheriesAuthorityWorkflowService> logger, ProtocolVersionService protocolVersionService)
         {
             m_logger = logger;
+            _version = protocolVersionService.LoadVersion();
         }
 
         public override async Task<InitialiseResponse> Initialise(InitialiseRequest request, ServerCallContext context)
         {
             GrpcValidation.ArgumentNotNullOrEmpty(request.ScenarioId);
-
 
             m_logger.LogInformation($"Initializing simulation {request.SimulationId}, with scenario {request.ScenarioId}...");
 
@@ -84,6 +87,11 @@ namespace SURIMI_fisheries_authority.Services
             //var res = await m_controller.ContinueAsync();
 
             return new SimulateStepResponse() { SimulationId = request.SimulationId };
+        }
+
+        public override Task<GetProtocolVersionResponse> GetProtocolVersion(GetProtocolVersionRequest request, ServerCallContext context)
+        {
+            return Task.FromResult(new GetProtocolVersionResponse() { ProtocolVersion = _version });
         }
 
         /// <summary>
