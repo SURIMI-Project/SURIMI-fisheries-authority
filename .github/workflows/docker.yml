@@ -22,7 +22,12 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -f ./SURIMI-fisheries-authority/Dockerfile -t ghcr.io/official-ewe/surimifisheriesauthority:latest .
+          docker build \
+            -f ./SURIMI-fisheries-authority/Dockerfile \
+            -t ghcr.io/official-ewe/surimifisheriesauthority:latest \
+            --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
+            --build-arg BSR_TOKEN=${{ secrets.BSR_TOKEN }} \
+            .
 
       - name: Push Docker image
         run: |
