@@ -22,7 +22,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t ghcr.io/official-ewe/surimifisheriesauthority:latest ./SURIMI-fisheries-authority/SURIMI-fisheries-authority
+                    docker build -f ./SURIMI-fisheries-authority/Dockerfile -t ghcr.io/official-ewe/surimifisheriesauthority:latest .
 
       - name: Push Docker image
         run: |
