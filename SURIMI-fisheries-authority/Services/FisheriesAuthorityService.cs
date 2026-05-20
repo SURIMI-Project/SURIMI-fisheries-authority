@@ -5,22 +5,34 @@ using SURIMI.Common.gRPC.Services;
 
 namespace SURIMI_fisheries_authority.Services
 {
-    public class FisheriesAuthorityWorkflowService : WorkflowService.WorkflowServiceBase
+    public class FisheriesAuthorityService : Grpc.Surimi.FisheriesAuthorityService.FisheriesAuthorityServiceBase
     {
-        private readonly ILogger<FisheriesAuthorityWorkflowService> m_logger;
+        private readonly ILogger<FisheriesAuthorityService> m_logger;
         private readonly string _version;
 
-        public FisheriesAuthorityWorkflowService(ILogger<FisheriesAuthorityWorkflowService> logger, ProtocolVersionService protocolVersionService)
+        public FisheriesAuthorityService(ILogger<FisheriesAuthorityService> logger, ProtocolVersionService protocolVersionService)
         {
             m_logger = logger;
             _version = protocolVersionService.LoadVersion();
         }
 
-        public override async Task<InitialiseResponse> Initialise(InitialiseRequest request, ServerCallContext context)
+        public override async Task<UpdateCatchDispositionResponse> UpdateCatchDisposition(UpdateCatchDispositionRequest request, ServerCallContext context)
         {
-            GrpcValidation.ArgumentNotNullOrEmpty(request.ScenarioId);
+            m_logger.LogInformation($"Received ConsumeCatch request for simulation {request.SimulationId}");
+            // Here you would implement the logic to process the catch data based on the SimulationId
+            // For demonstration purposes, we'll return a dummy response
+            var response = new UpdateCatchDispositionResponse
+            {
+                SimulationId = request.SimulationId,
+            };
+            return await Task.FromResult(response);
+        }
 
-            m_logger.LogInformation($"Initializing simulation {request.SimulationId}, with scenario {request.ScenarioId}...");
+        public override async Task<InitialiseSimulationResponse> InitialiseSimulation(InitialiseSimulationRequest request, ServerCallContext context)
+        {
+            GrpcValidation.ArgumentNotNullOrEmpty(request.ScenarioName);
+
+            m_logger.LogInformation($"Initializing simulation {request.SimulationId}, with scenario {request.ScenarioName}...");
 
             try
             {
@@ -31,16 +43,16 @@ namespace SURIMI_fisheries_authority.Services
                 //{
                 //    throw new RpcException(new Status(StatusCode.Internal, "Failed to initialise Fisheries Authority"));
                 //}
-                return new InitialiseResponse() { SimulationId = request.SimulationId };
+                return new InitialiseSimulationResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
             {
-                m_logger.LogError(ex, "Error during Initialise");
+                m_logger.LogError(ex, "Error during InitialiseSimulation");
                 throw;
             }
         }
 
-        public override async Task<FinaliseResponse> Finalise(FinaliseRequest request, ServerCallContext context)
+        public override async Task<FinaliseSimulationResponse> FinaliseSimulation(FinaliseSimulationRequest request, ServerCallContext context)
         {
             m_logger.LogInformation($"Finalizing simulation {request.SimulationId}");
 
@@ -51,7 +63,7 @@ namespace SURIMI_fisheries_authority.Services
                 //{
                 //    throw new RpcException(new Status(StatusCode.Internal, "Failed to finalise Fisheries Authority"));
                 //}
-                return new FinaliseResponse() { SimulationId = request.SimulationId };
+                return new FinaliseSimulationResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
             {
@@ -60,7 +72,7 @@ namespace SURIMI_fisheries_authority.Services
             }
         }
 
-        public override async Task<CancelResponse> Cancel(CancelRequest request, ServerCallContext context)
+        public override async Task<CancelSimulationResponse> CancelSimulation(CancelSimulationRequest request, ServerCallContext context)
         {
             m_logger.LogInformation($"Cancel simulation {request.SimulationId}");
 
@@ -71,11 +83,11 @@ namespace SURIMI_fisheries_authority.Services
                 //{
                 //    throw new RpcException(new Status(StatusCode.Internal, "Failed to cancel Fisheries Authority"));
                 //}
-                return new CancelResponse() { SimulationId = request.SimulationId };
+                return new CancelSimulationResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
             {
-                m_logger.LogError(ex, "Error during Cancel");
+                m_logger.LogError(ex, "Error during CancelSimulation");
                 throw;
             }
         }
@@ -92,6 +104,94 @@ namespace SURIMI_fisheries_authority.Services
         public override Task<GetProtocolVersionResponse> GetProtocolVersion(GetProtocolVersionRequest request, ServerCallContext context)
         {
             return Task.FromResult(new GetProtocolVersionResponse() { ProtocolVersion = _version });
+        }
+
+        public override async Task<GetRegulationsResponse> GetRegulations(GetRegulationsRequest request, ServerCallContext context)
+        {
+            m_logger.LogInformation($"Received GetRegulations request for simulation {request.SimulationId}");
+            // Here you would implement the logic to retrieve the regulations based on the SimulationId
+            // For demonstration purposes, we'll return a dummy response
+
+
+            SURIMI.Datamodel.RegulationsSummary regulationsSummary = new SURIMI.Datamodel.RegulationsSummary
+            {
+                TotalAllowableCatches = new List<SURIMI.Datamodel.TotalAllowableCatch>
+                {
+                    new SURIMI.Datamodel.TotalAllowableCatch
+                    {
+                        Species = new SURIMI.Datamodel.Species()
+                        {
+                            SpeciesCode = "PIL",
+                        },
+                        FleetSegment = new SURIMI.Datamodel.FleetSegment()
+                        {
+                            GearCode = "ART",
+                            CountryCode = "ESP"
+                        },
+                        Catch = 2323.34
+                    },
+                    new SURIMI.Datamodel.TotalAllowableCatch
+                    {
+                        Species = new SURIMI.Datamodel.Species()
+                        {
+                            SpeciesCode = "KHE",
+                        },
+                        FleetSegment = new SURIMI.Datamodel.FleetSegment()
+                        {
+                            GearCode = "OTB",
+                            CountryCode = "ESP"
+                        },
+                        Catch = 500.0005
+                    }
+                }
+            };
+
+            var response = new GetRegulationsResponse
+            {
+                SimulationId = request.SimulationId,
+                StartDateTime = request.StartDateTime,
+                EndDateTime = request.EndDateTime,
+                RegulationsSummary = new RegulationsSummary
+                {
+                    TotalAllowableCatches =
+                    {
+                        regulationsSummary.TotalAllowableCatches.Select(tac => new TotalAllowableCatch
+                        {
+                            Species = new Species
+                            {
+                                SpeciesCode = tac.Species.SpeciesCode
+                            },
+                            FleetSegment = new FleetSegment
+                            {
+                                GearCode = tac.FleetSegment.GearCode,
+                                CountryCode = tac.FleetSegment.CountryCode
+                            },
+                            Catch = tac.Catch
+                        })
+                    }
+                }
+            };
+            return await Task.FromResult(response);
+        }
+
+        public override async Task<UpdateFishingActivityResponse> UpdateFishingActivity(UpdateFishingActivityRequest request, ServerCallContext context)
+        {
+            m_logger.LogInformation($"Received UpdateFishingActivity request for simulation {request.SimulationId}");
+            var response = new UpdateFishingActivityResponse
+            {
+                SimulationId = request.SimulationId
+            };
+            return await Task.FromResult(response);
+        }
+
+        public override async Task<CreateRegulationsResponse> CreateRegulations(CreateRegulationsRequest request, ServerCallContext context)
+        {
+            m_logger.LogInformation($"Received CreateRegulations request for simulation {request.SimulationId}");
+            var response = new CreateRegulationsResponse
+            {
+                SimulationId = request.SimulationId
+            };
+            return await Task.FromResult(response);
         }
 
         /// <summary>
