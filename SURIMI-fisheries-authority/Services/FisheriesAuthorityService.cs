@@ -36,7 +36,7 @@ namespace SURIMI_fisheries_authority.Services
 
             try
             {
-                var surimiConfiguration = GetSurimiConfiguration(request.Simulation);
+                var surimiContract = GetSurimiContract(request.Simulation);
 
                 //var result = await m_controller.StartAsync();
                 //if (result != 1)
@@ -195,13 +195,13 @@ namespace SURIMI_fisheries_authority.Services
         }
 
         /// <summary>
-        /// Mapping method from gRPC Surimi Simulation to SURIMI Datamodel SurimiConfiguration
+        /// Mapping method from gRPC Surimi Simulation to SURIMI Datamodel SurimiContract
         /// </summary>
         /// <param name="simulation"></param>
         /// <returns></returns>
-        private SURIMI.Datamodel.SurimiConfiguration GetSurimiConfiguration(Grpc.Surimi.Simulation simulation)
+        private SURIMI.Datamodel.SurimiContract GetSurimiContract(Grpc.Surimi.Simulation simulation)
         {
-            return new SURIMI.Datamodel.SurimiConfiguration
+            return new SURIMI.Datamodel.SurimiContract
             {
                 Simulation = new SURIMI.Datamodel.Simulation()
                 {
@@ -232,6 +232,7 @@ namespace SURIMI_fisheries_authority.Services
                 {
                     Currency = simulation.Standards.Currency,
                     CountryCode = simulation.Standards.CountryCode,
+                    //CategoryCode = surimiContract.Standards?.CategoryCode ?? string.Empty,        TODO
                     DateAndTime = simulation.Standards.DateAndTime,
                     GearCode = simulation.Standards.GearCode,
                     LifeStage = simulation.Standards.LifeStage,
