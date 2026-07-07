@@ -21,12 +21,15 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Build Docker image
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BSR_TOKEN: ${{ secrets.BSR_TOKEN }}
         run: |
           docker build \
             -f ./SURIMI-fisheries-authority/Dockerfile \
             -t ghcr.io/official-ewe/surimifisheriesauthority:latest \
-            --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
-            --build-arg BSR_TOKEN=${{ secrets.BSR_TOKEN }} \
+            --secret id=GITHUB_TOKEN,env=GITHUB_TOKEN \
+            --secret id=BSR_TOKEN,env=BSR_TOKEN \
             .
 
       - name: Push Docker image
