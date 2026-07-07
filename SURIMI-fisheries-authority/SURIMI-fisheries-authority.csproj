@@ -9,7 +9,7 @@
   </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="BSR.Surimi.Surimi-Protocol.Grpc.Csharp" Version="1.81.10101.81+449222ce0083" />
+        <PackageReference Include="BSR.Surimi.Surimi-Protocol.Grpc.Csharp" Version="1.82.10001.82+459c3b62a20e" />
         <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
         <PackageReference Include="Google.Api.CommonProtos" Version="2.17.0" />
         <PackageReference Include="Grpc.AspNetCore" Version="2.71.0" />
