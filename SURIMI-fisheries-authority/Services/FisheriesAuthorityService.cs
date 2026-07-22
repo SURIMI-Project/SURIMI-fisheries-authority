@@ -194,6 +194,16 @@ namespace SURIMI_fisheries_authority.Services
             return await Task.FromResult(response);
         }
 
+        public override async Task<UpdateBiomassResponse> UpdateBiomass(UpdateBiomassRequest request, ServerCallContext context)
+        {
+            m_logger.LogInformation($"Received UpdateBiomass request for simulation {request.SimulationId}");
+            var response = new UpdateBiomassResponse
+            {
+                SimulationId = request.SimulationId
+            };
+            return await Task.FromResult(response);
+        }
+
         /// <summary>
         /// Mapping method from gRPC Surimi Simulation to SURIMI Datamodel SurimiContract
         /// </summary>
