@@ -8,24 +8,33 @@ namespace SURIMI_fisheries_authority.Services
     public class FisheriesAuthorityService : Grpc.Surimi.FisheriesAuthorityService.FisheriesAuthorityServiceBase
     {
         private readonly ILogger<FisheriesAuthorityService> m_logger;
+        private readonly IQuotaCalculationService m_quotaCalculationService;
         private readonly string _version;
 
-        public FisheriesAuthorityService(ILogger<FisheriesAuthorityService> logger, ProtocolVersionService protocolVersionService)
+        public FisheriesAuthorityService(ILogger<FisheriesAuthorityService> logger, ProtocolVersionService protocolVersionService, IQuotaCalculationService quotaCalculationService)
         {
             m_logger = logger;
+            m_quotaCalculationService = quotaCalculationService;
             _version = protocolVersionService.LoadVersion();
         }
 
         public override async Task<UpdateCatchDispositionResponse> UpdateCatchDisposition(UpdateCatchDispositionRequest request, ServerCallContext context)
         {
-            m_logger.LogInformation($"Received ConsumeCatch request for simulation {request.SimulationId}");
-            // Here you would implement the logic to process the catch data based on the SimulationId
-            // For demonstration purposes, we'll return a dummy response
-            var response = new UpdateCatchDispositionResponse
+            m_logger.LogInformation($"Received UpdateCatchDisposition request for simulation {request.SimulationId}");
+            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
+
+            try
             {
-                SimulationId = request.SimulationId,
-            };
-            return await Task.FromResult(response);
+                var catchDispositionSummary = GetCatchDispositionSummary(request.CatchDispositionSummary);
+                await m_quotaCalculationService.UpdateCatchDispositionAsync(request.SimulationId, request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), catchDispositionSummary);
+
+                return new UpdateCatchDispositionResponse() { SimulationId = request.SimulationId };
+            }
+            catch (Exception ex)
+            {
+                m_logger.LogError(ex, $"Error during UpdateCatchDisposition for simulation {request.SimulationId}");
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+            }
         }
 
         public override async Task<InitialiseSimulationResponse> InitialiseSimulation(InitialiseSimulationRequest request, ServerCallContext context)
@@ -37,18 +46,14 @@ namespace SURIMI_fisheries_authority.Services
             try
             {
                 var surimiContract = GetSurimiContract(request.Simulation);
+                await m_quotaCalculationService.InitialiseSimulationAsync(request.SimulationId, surimiContract);
 
-                //var result = await m_controller.StartAsync();
-                //if (result != 1)
-                //{
-                //    throw new RpcException(new Status(StatusCode.Internal, "Failed to initialise Fisheries Authority"));
-                //}
                 return new InitialiseSimulationResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
             {
-                m_logger.LogError(ex, "Error during InitialiseSimulation");
-                throw;
+                m_logger.LogError(ex, $"Error during InitialiseSimulation for simulation {request.SimulationId}");
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
             }
         }
 
@@ -58,17 +63,13 @@ namespace SURIMI_fisheries_authority.Services
 
             try
             {
-                //var result = await m_controller.StopAsync();
-                //if (result == false)
-                //{
-                //    throw new RpcException(new Status(StatusCode.Internal, "Failed to finalise Fisheries Authority"));
-                //}
+                await m_quotaCalculationService.FinaliseSimulationAsync(request.SimulationId);
                 return new FinaliseSimulationResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
             {
-                m_logger.LogError(ex, "Error during Finalise");
-                throw;
+                m_logger.LogError(ex, $"Error during FinaliseSimulation for simulation {request.SimulationId}");
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
             }
         }
 
@@ -78,17 +79,13 @@ namespace SURIMI_fisheries_authority.Services
 
             try
             {
-                //var result = await m_controller.StopAsync();
-                //if (result == false)
-                //{
-                //    throw new RpcException(new Status(StatusCode.Internal, "Failed to cancel Fisheries Authority"));
-                //}
+                await m_quotaCalculationService.CancelSimulationAsync(request.SimulationId);
                 return new CancelSimulationResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
             {
-                m_logger.LogError(ex, "Error during CancelSimulation");
-                throw;
+                m_logger.LogError(ex, $"Error during CancelSimulation for simulation {request.SimulationId}");
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
             }
         }
 
@@ -96,9 +93,16 @@ namespace SURIMI_fisheries_authority.Services
         {
             m_logger.LogInformation($"Simulate step for simulation {request.SimulationId}");
 
-            //var res = await m_controller.ContinueAsync();
-
-            return new SimulateStepResponse() { SimulationId = request.SimulationId };
+            try
+            {
+                await m_quotaCalculationService.SimulateStepAsync(request.SimulationId);
+                return new SimulateStepResponse() { SimulationId = request.SimulationId };
+            }
+            catch (Exception ex)
+            {
+                m_logger.LogError(ex, $"Error during SimulateStep for simulation {request.SimulationId}");
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+            }
         }
 
         public override Task<GetProtocolVersionResponse> GetProtocolVersion(GetProtocolVersionRequest request, ServerCallContext context)
@@ -109,99 +113,222 @@ namespace SURIMI_fisheries_authority.Services
         public override async Task<GetRegulationsResponse> GetRegulations(GetRegulationsRequest request, ServerCallContext context)
         {
             m_logger.LogInformation($"Received GetRegulations request for simulation {request.SimulationId}");
-            // Here you would implement the logic to retrieve the regulations based on the SimulationId
-            // For demonstration purposes, we'll return a dummy response
+            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
 
-
-            SURIMI.Datamodel.RegulationsSummary regulationsSummary = new SURIMI.Datamodel.RegulationsSummary
+            try
             {
-                TotalAllowableCatches = new List<SURIMI.Datamodel.TotalAllowableCatch>
-                {
-                    new SURIMI.Datamodel.TotalAllowableCatch
-                    {
-                        Species = new SURIMI.Datamodel.Species()
-                        {
-                            SpeciesCode = "PIL",
-                        },
-                        FleetSegment = new SURIMI.Datamodel.FleetSegment()
-                        {
-                            GearCode = "ART",
-                            CountryCode = "ESP"
-                        },
-                        Catch = 2323.34
-                    },
-                    new SURIMI.Datamodel.TotalAllowableCatch
-                    {
-                        Species = new SURIMI.Datamodel.Species()
-                        {
-                            SpeciesCode = "KHE",
-                        },
-                        FleetSegment = new SURIMI.Datamodel.FleetSegment()
-                        {
-                            GearCode = "OTB",
-                            CountryCode = "ESP"
-                        },
-                        Catch = 500.0005
-                    }
-                }
-            };
+                var regulationsSummary = await m_quotaCalculationService.GetRegulationsAsync(request.SimulationId, request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime());
 
-            var response = new GetRegulationsResponse
-            {
-                SimulationId = request.SimulationId,
-                StartDateTime = request.StartDateTime,
-                EndDateTime = request.EndDateTime,
-                RegulationsSummary = new RegulationsSummary
+                var response = new GetRegulationsResponse
                 {
-                    TotalAllowableCatches =
+                    SimulationId = request.SimulationId,
+                    StartDateTime = request.StartDateTime,
+                    EndDateTime = request.EndDateTime,
+                    RegulationsSummary = new RegulationsSummary
                     {
-                        regulationsSummary.TotalAllowableCatches.Select(tac => new TotalAllowableCatch
+                        TotalAllowableCatches =
                         {
-                            Species = new Species
+                            regulationsSummary.TotalAllowableCatches.Select(tac => new TotalAllowableCatch
                             {
-                                SpeciesCode = tac.Species.SpeciesCode
-                            },
-                            FleetSegment = new FleetSegment
-                            {
-                                GearCode = tac.FleetSegment.GearCode,
-                                CountryCode = tac.FleetSegment.CountryCode
-                            },
-                            Catch = tac.Catch
-                        })
+                                Species = new Species
+                                {
+                                    SpeciesCode = tac.Species.SpeciesCode
+                                },
+                                FleetSegment = new FleetSegment
+                                {
+                                    GearCode = tac.FleetSegment.GearCode,
+                                    CountryCode = tac.FleetSegment.CountryCode
+                                },
+                                Catch = tac.Catch
+                            })
+                        }
                     }
-                }
-            };
-            return await Task.FromResult(response);
+                };
+                return response;
+            }
+            catch (Exception ex)
+            {
+                m_logger.LogError(ex, $"Error during GetRegulations for simulation {request.SimulationId}");
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+            }
         }
 
         public override async Task<UpdateFishingActivityResponse> UpdateFishingActivity(UpdateFishingActivityRequest request, ServerCallContext context)
         {
             m_logger.LogInformation($"Received UpdateFishingActivity request for simulation {request.SimulationId}");
-            var response = new UpdateFishingActivityResponse
+            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
+
+            try
             {
-                SimulationId = request.SimulationId
-            };
-            return await Task.FromResult(response);
+                var fishingActivitySummary = GetFishingActivitySummary(request.FishingActivitySummary);
+                await m_quotaCalculationService.UpdateFishingActivityAsync(request.SimulationId, request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), fishingActivitySummary);
+                return new UpdateFishingActivityResponse() { SimulationId = request.SimulationId };
+            }
+            catch (Exception ex)
+            {
+                m_logger.LogError(ex, $"Error during UpdateFishingActivity for simulation {request.SimulationId}");
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+            }
         }
 
         public override async Task<CreateRegulationsResponse> CreateRegulations(CreateRegulationsRequest request, ServerCallContext context)
         {
             m_logger.LogInformation($"Received CreateRegulations request for simulation {request.SimulationId}");
-            var response = new CreateRegulationsResponse
+            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
+
+            try
             {
-                SimulationId = request.SimulationId
-            };
-            return await Task.FromResult(response);
+                var regulationDefinitionsSummary = GetRegulationDefinitionsSummary(request.RegulationsSummary);
+                await m_quotaCalculationService.CreateRegulationsAsync(request.SimulationId, regulationDefinitionsSummary);
+                return new CreateRegulationsResponse() { SimulationId = request.SimulationId };
+            }
+            catch (Exception ex)
+            {
+                m_logger.LogError(ex, $"Error during CreateRegulations for simulation {request.SimulationId}");
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+            }
         }
 
         public override async Task<UpdateBiomassResponse> UpdateBiomass(UpdateBiomassRequest request, ServerCallContext context)
         {
             m_logger.LogInformation($"Received UpdateBiomass request for simulation {request.SimulationId}");
-            var response = new UpdateBiomassResponse
+            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
+
+            try
             {
-                SimulationId = request.SimulationId
+                var biomassGrids = GetBiomassGrids(request.BiomassSummary);
+                await m_quotaCalculationService.UpdateBiomassAsync(request.SimulationId, biomassGrids);
+                return new UpdateBiomassResponse() { SimulationId = request.SimulationId };
+            }
+            catch (Exception ex)
+            {
+                m_logger.LogError(ex, $"Error during UpdateBiomass for simulation {request.SimulationId}");
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+            }
+        }
+
+        /// <summary>
+        /// Mapping method from gRPC Surimi BiomassSummary to SURIMI Datamodel BiomassGrids
+        /// </summary>
+        /// <param name="biomassSummary"></param>
+        /// <returns></returns>
+        private static List<SURIMI.Datamodel.BiomassGrid> GetBiomassGrids(BiomassSummary biomassSummary)
+        {
+            return biomassSummary.BiomassGrids
+                .Select(grid => new SURIMI.Datamodel.BiomassGrid
+                {
+                    Species = GetSpecies(grid.Species),
+                    BiomassCells = grid.BiomassCells
+                        .Select(grpcCell => new SURIMI.Datamodel.BiomassCell
+                        {
+                            Biomass = grpcCell.Biomass,
+                            Latitude = grpcCell.Latitude,
+                            Longitude = grpcCell.Longitude
+                        })
+                        .ToList()
+                })
+                .ToList();
+        }
+
+        /// <summary>
+        /// Mapping method from gRPC Surimi CatchDispositionSummary to SURIMI Datamodel CatchDispositionSummary
+        /// </summary>
+        /// <param name="catchDispositionSummary"></param>
+        /// <returns></returns>
+        private static SURIMI.Datamodel.CatchDispositionSummary GetCatchDispositionSummary(CatchDispositionSummary catchDispositionSummary)
+        {
+            return new SURIMI.Datamodel.CatchDispositionSummary
+            {
+                DispositionGrids = catchDispositionSummary.DispositionGrids
+                    .Select(grid => new SURIMI.Datamodel.DispositionGrid
+                    {
+                        Species = GetSpecies(grid.Species),
+                        FleetSegment = GetFleetSegment(grid.FleetSegment),
+                        DispositionCells = grid.DispositionCells
+                            .Select(grpcCell => new SURIMI.Datamodel.DispositionCell
+                            {
+                                Longitude = grpcCell.Longitude,
+                                Latitude = grpcCell.Latitude,
+                                GrossCatchBiomass = grpcCell.GrossCatch,
+                                LiveDiscardsBiomass = grpcCell.LiveDiscards,
+                                DeadDiscardsBiomass = grpcCell.DeadDiscards
+                            })
+                            .ToList()
+                    })
+                    .ToList()
             };
-            return await Task.FromResult(response);
+        }
+
+        /// <summary>
+        /// Mapping method from gRPC Surimi FishingActivitySummary to SURIMI Datamodel FishingActivitySummary
+        /// </summary>
+        /// <param name="fishingActivitySummary"></param>
+        /// <returns></returns>
+        private static SURIMI.Datamodel.FishingActivitySummary GetFishingActivitySummary(FishingActivitySummary fishingActivitySummary)
+        {
+            return new SURIMI.Datamodel.FishingActivitySummary
+            {
+                FishingActivities = fishingActivitySummary.FishingActivities
+                    .Select(activity => new SURIMI.Datamodel.FishingActivity
+                    {
+                        FleetSegment = GetFleetSegment(activity.FleetSegment),
+                        FishingActivityRatio = activity.FishingActivityRatio
+                    })
+                    .ToList()
+            };
+        }
+
+        /// <summary>
+        /// Mapping method from gRPC Surimi RegulationDefinitionsSummary to SURIMI Datamodel RegulationDefinitionsSummary
+        /// </summary>
+        /// <param name="regulationDefinitionsSummary"></param>
+        /// <returns></returns>
+        private static SURIMI.Datamodel.RegulationDefinitionsSummary GetRegulationDefinitionsSummary(RegulationDefinitionsSummary regulationDefinitionsSummary)
+        {
+            return new SURIMI.Datamodel.RegulationDefinitionsSummary
+            {
+                TargetFishingMortalities = regulationDefinitionsSummary.TargetFishingMortalities
+                    .Select(tfm => new SURIMI.Datamodel.TargetFishingMortality
+                    {
+                        Species = GetSpecies(tfm.Species),
+                        BiomassLimit = tfm.BiomassLimit,
+                        BiomassBase = tfm.BiomassBase,
+                        FMax = tfm.FMax
+                    })
+                    .ToList()
+            };
+        }
+
+        /// <summary>
+        /// Mapping method from gRPC Surimi Species to SURIMI Datamodel Species
+        /// </summary>
+        /// <param name="species"></param>
+        /// <returns></returns>
+        private static SURIMI.Datamodel.Species GetSpecies(Species species)
+        {
+            return new SURIMI.Datamodel.Species
+            {
+                SpeciesCode = species.SpeciesCode,
+                LengthClass = species.LengthClass ?? string.Empty,
+                Age = species.Age ?? string.Empty,
+                LifeStage = species.LifeStage ?? string.Empty
+            };
+        }
+
+        /// <summary>
+        /// Mapping method from gRPC Surimi FleetSegment to SURIMI Datamodel FleetSegment
+        /// </summary>
+        /// <param name="fleetSegment"></param>
+        /// <returns></returns>
+        private static SURIMI.Datamodel.FleetSegment GetFleetSegment(FleetSegment fleetSegment)
+        {
+            return new SURIMI.Datamodel.FleetSegment
+            {
+                GearCode = fleetSegment.GearCode,
+                VesselLengthClass = fleetSegment.VesselLengthClass,
+                Scale = fleetSegment.Scale,
+                CountryCode = fleetSegment.CountryCode
+            };
         }
 
         /// <summary>

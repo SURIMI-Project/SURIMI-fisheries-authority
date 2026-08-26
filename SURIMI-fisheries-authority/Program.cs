@@ -1,6 +1,7 @@
-using SURIMI_fisheries_authority.Services;
+using EwECore.MSE;
 using SURIMI.Common.gRPC;
 using SURIMI.Common.gRPC.Services;
+using SURIMI_fisheries_authority.Services;
 
 namespace SURIMI_fisheries_authority
 {
@@ -19,8 +20,12 @@ namespace SURIMI_fisheries_authority
                 options.MaxReceiveMessageSize = 100 * 1024 * 1024; // 16 MB
                 options.MaxSendMessageSize = 100 * 1024 * 1024; // 16 MB
             });
+            builder.Services.AddGrpcReflection();
 
             builder.Services.AddSingleton<ProtocolVersionService>();
+            builder.Services.AddSingleton<IQuotaCalculationService, QuotaCalculationService>();
+            builder.Services.AddSingleton<IMSEStockRecruitment, cMSEStockRecruitment>();
+
 
             builder.Logging.ClearProviders();
             builder.Services.AddLogging(opt =>
@@ -36,6 +41,7 @@ namespace SURIMI_fisheries_authority
 
             // Configure the HTTP request pipeline.
             app.MapGrpcService<FisheriesAuthorityService>();
+            app.MapGrpcReflectionService();
 
             app.MapGet("/", () => "Communication with gRPC endpoints must be made through a gRPC client. To learn how to create a client, visit: https://go.microsoft.com/fwlink/?linkid=2086909");
 
