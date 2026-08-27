@@ -60,6 +60,34 @@ The code is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. Se
 
 The Fisheries Authority represents the **governmental regulatory body** responsible for setting fishing quotas. In real-world fisheries management, authorities issue **Total Allowable Catches (TACs)** — upper bounds on the quantity of each species that may be caught by each fleet segment over a defined period (typically annually). By receiving biomass and catch data from the ecosystem and fleet models, the Fisheries Authority can, in principle, dynamically adjust regulations in response to the simulated ecological state, reflecting adaptive management principles.
 
+
+### Target Fishing Mortality
+
+The "Hockey stick" refers to the shape of the Target Fishing Mortality curve as a function of estimated biomass — it looks like a hockey stick lying on its side.
+
+Looking at the formula in UpdateQuotas (the Target Fishing Mortality branch):
+
+`FTarget = Fopt * (Bestimate - Blim) / (Bbase - Blim)   clamped to [Fmin, Fopt]`
+
+Plotting FTarget against Bestimate gives three segments:
+
+```text
+FTarget|
+  Fopt |          --------------   ← flat blade (clamped at Fopt)
+       |         /
+       |        /
+       |       /                 ← sloped shaft (linear ramp)
+Fmin   |------/
+       |---------------------  Bestimate
+           Blim     Bbase
+```
+
+* Below Blim (biomass limit): FTarget is clamped down to Fmin (often 0) — the flat handle end. Fishing is throttled to protect a depleted stock.
+* Between Blim and Bbase: FTarget ramps up linearly with biomass — the sloped shaft.
+* At or above Bbase (the base/target biomass): FTarget is clamped to Fopt, the optimal fishing mortality — the flat blade.
+This is a common harvest control rule in fisheries management: fish hard when the stock is healthy, ramp down proportionally as it declines, and stop when it drops below the limit.
+
+
 ### Harvest control Rules
 With a harvest control rule, the Fisheries Authority can implement a feedback mechanism that adjusts TACs based on observed biomass levels. For example, if the biomass of a particular species falls below a predefined threshold, the harvest control rule may reduce the TAC for that species to prevent overfishing. Conversely, if biomass is above the threshold, the TAC may be increased to allow for sustainable harvesting.
 
@@ -67,11 +95,20 @@ With a harvest control rule, the Fisheries Authority can implement a feedback me
 
 In the example above, when the Biomass of Whiting drops below 1 tonne per year, all fishing is prohibited (TAC = 0). When the Biomass is 1,5 tonnes per year, about 2,5 % of the biomass can be caught. When the biomass of Whiting is more than 2 tonnes per year, the target fishing mortality is around 5%, so the TAC is 2 * 0.05 = 0.1 Tonnes.
 
+### MSE options
+The MSE options that are used in SURIMI are the "output (quota) controls". 
+
+(Fishing effort control means that the effort of a fleet is controlled by restricting the number of days at sea, or the number of vessels allowed to fish, or the amount of gear that can be used. This is not implemented in SURIMI.)
+    
+<img src="MSE options.png" alt="MSE options" width="400"/>
+
+
+
 ---
 
 ## Service architecture
 
-The Fisheries Authority is a stateless gRPC microservice that acts as a **regulatory data provider and catch monitor** within the SURIMI simulation loop. It is built on ASP.NET Core's gRPC server framework and exposes a single service class (`FisheriesAuthorityService`) that overrides the generated base from the shared Surimi Protocol. The service is registered as a singleton and uses ASP.NET Core's built-in dependency injection for logging and versioning. All gRPC calls pass through two interceptors: `ExceptionMetadataInterceptor` (which enriches error responses) and `VersionMetadataInterceptor` (which attaches protocol version metadata to responses). Configuration is minimal and driven by environment variables and `appsettings.json`.
+The Fisheries Authority is a gRPC microservice that acts as a **regulatory data provider and catch monitor** within the SURIMI simulation loop. It is built on ASP.NET Core's gRPC server framework and exposes a single service class (`FisheriesAuthorityService`) that overrides the generated base from the shared Surimi Protocol. Per-simulation state is managed through dependency injection scopes: a singleton `SimulationScopeManager` creates one DI scope per simulation on `InitialiseSimulation`, and each scope owns a scoped `IQuotaCalculationService` instance holding the state of exactly one simulation. The scope is disposed on `FinaliseSimulation` or `CancelSimulation`. All gRPC calls pass through two interceptors: `ExceptionMetadataInterceptor` (which enriches error responses) and `VersionMetadataInterceptor` (which attaches protocol version metadata to responses). Configuration is minimal and driven by environment variables and `appsettings.json`.
 
 ### High-Level Architecture
 
@@ -163,7 +200,7 @@ end
 
 ### Key design decisions / trade-offs
 
-- **Stateless server:** The service does not maintain per-simulation state internally; all relevant context is passed in each request. This simplifies horizontal scaling.
+- **Scope-per-simulation state:** The singleton `SimulationScopeManager` maps each `SimulationId` to a dedicated DI scope. The scoped `QuotaCalculationService` inside that scope holds the simulation's state (contract, quota data, species/group map, biomass) without any shared dictionary of simulations, and the scope is disposed when the simulation finalises or is cancelled.
 - **Shared protocol package:** The gRPC contracts are defined in the `BSR.Surimi.Surimi-Protocol` NuGet package (hosted on Buf Schema Registry), ensuring all models share the same Protobuf definitions without per-repo duplication.
 - **Internal domain model mapping:** The service maps the gRPC `Simulation` message to the internal `SURIMI.Datamodel.SurimiContract` type in `GetSurimiContract()`, decoupling the transport layer from domain logic.
 - **Hardcoded TAC stub:** `GetRegulations` currently returns a hardcoded list of TACs (PIL/ART/ESP and KHE/OTB/ESP). This is a placeholder until a real data source (e.g., S3 bucket or database) is connected.
