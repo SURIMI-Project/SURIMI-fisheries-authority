@@ -8,13 +8,13 @@ namespace SURIMI_fisheries_authority.Services
     public class FisheriesAuthorityService : Grpc.Surimi.FisheriesAuthorityService.FisheriesAuthorityServiceBase
     {
         private readonly ILogger<FisheriesAuthorityService> m_logger;
-        private readonly IQuotaCalculationService m_quotaCalculationService;
+        private readonly SimulationScopeManager m_simulationScopeManager;
         private readonly string _version;
 
-        public FisheriesAuthorityService(ILogger<FisheriesAuthorityService> logger, ProtocolVersionService protocolVersionService, IQuotaCalculationService quotaCalculationService)
+        public FisheriesAuthorityService(ILogger<FisheriesAuthorityService> logger, ProtocolVersionService protocolVersionService, SimulationScopeManager simulationScopeManager)
         {
             m_logger = logger;
-            m_quotaCalculationService = quotaCalculationService;
+            m_simulationScopeManager = simulationScopeManager;
             _version = protocolVersionService.LoadVersion();
         }
 
@@ -26,7 +26,7 @@ namespace SURIMI_fisheries_authority.Services
             try
             {
                 var catchDispositionSummary = GetCatchDispositionSummary(request.CatchDispositionSummary);
-                await m_quotaCalculationService.UpdateCatchDispositionAsync(request.SimulationId, request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), catchDispositionSummary);
+                await m_simulationScopeManager.GetService(request.SimulationId).UpdateCatchDispositionAsync(request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), catchDispositionSummary);
 
                 return new UpdateCatchDispositionResponse() { SimulationId = request.SimulationId };
             }
@@ -46,7 +46,16 @@ namespace SURIMI_fisheries_authority.Services
             try
             {
                 var surimiContract = GetSurimiContract(request.Simulation);
-                await m_quotaCalculationService.InitialiseSimulationAsync(request.SimulationId, surimiContract);
+                var quotaCalculationService = m_simulationScopeManager.CreateSimulationScope(request.SimulationId);
+                try
+                {
+                    await quotaCalculationService.InitialiseSimulationAsync(request.SimulationId, surimiContract);
+                }
+                catch
+                {
+                    m_simulationScopeManager.RemoveSimulationScope(request.SimulationId);
+                    throw;
+                }
 
                 return new InitialiseSimulationResponse() { SimulationId = request.SimulationId };
             }
@@ -63,7 +72,15 @@ namespace SURIMI_fisheries_authority.Services
 
             try
             {
-                await m_quotaCalculationService.FinaliseSimulationAsync(request.SimulationId);
+                var quotaCalculationService = m_simulationScopeManager.GetService(request.SimulationId);
+                try
+                {
+                    await quotaCalculationService.FinaliseSimulationAsync();
+                }
+                finally
+                {
+                    m_simulationScopeManager.RemoveSimulationScope(request.SimulationId);
+                }
                 return new FinaliseSimulationResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
@@ -79,7 +96,15 @@ namespace SURIMI_fisheries_authority.Services
 
             try
             {
-                await m_quotaCalculationService.CancelSimulationAsync(request.SimulationId);
+                var quotaCalculationService = m_simulationScopeManager.GetService(request.SimulationId);
+                try
+                {
+                    await quotaCalculationService.CancelSimulationAsync();
+                }
+                finally
+                {
+                    m_simulationScopeManager.RemoveSimulationScope(request.SimulationId);
+                }
                 return new CancelSimulationResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
@@ -95,7 +120,7 @@ namespace SURIMI_fisheries_authority.Services
 
             try
             {
-                await m_quotaCalculationService.SimulateStepAsync(request.SimulationId);
+                await m_simulationScopeManager.GetService(request.SimulationId).SimulateStepAsync();
                 return new SimulateStepResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
@@ -117,7 +142,7 @@ namespace SURIMI_fisheries_authority.Services
 
             try
             {
-                var regulationsSummary = await m_quotaCalculationService.GetRegulationsAsync(request.SimulationId, request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime());
+                var regulationsSummary = await m_simulationScopeManager.GetService(request.SimulationId).GetRegulationsAsync(request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime());
 
                 var response = new GetRegulationsResponse
                 {
@@ -161,7 +186,7 @@ namespace SURIMI_fisheries_authority.Services
             try
             {
                 var fishingActivitySummary = GetFishingActivitySummary(request.FishingActivitySummary);
-                await m_quotaCalculationService.UpdateFishingActivityAsync(request.SimulationId, request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), fishingActivitySummary);
+                await m_simulationScopeManager.GetService(request.SimulationId).UpdateFishingActivityAsync(request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), fishingActivitySummary);
                 return new UpdateFishingActivityResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
@@ -179,7 +204,7 @@ namespace SURIMI_fisheries_authority.Services
             try
             {
                 var regulationDefinitionsSummary = GetRegulationDefinitionsSummary(request.RegulationsSummary);
-                await m_quotaCalculationService.CreateRegulationsAsync(request.SimulationId, regulationDefinitionsSummary);
+                await m_simulationScopeManager.GetService(request.SimulationId).CreateRegulationsAsync(regulationDefinitionsSummary);
                 return new CreateRegulationsResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
@@ -197,7 +222,7 @@ namespace SURIMI_fisheries_authority.Services
             try
             {
                 var biomassGrids = GetBiomassGrids(request.BiomassSummary);
-                await m_quotaCalculationService.UpdateBiomassAsync(request.SimulationId, biomassGrids);
+                await m_simulationScopeManager.GetService(request.SimulationId).UpdateBiomassAsync(biomassGrids);
                 return new UpdateBiomassResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)

@@ -108,7 +108,7 @@ The MSE options that are used in SURIMI are the "output (quota) controls".
 
 ## Service architecture
 
-The Fisheries Authority is a stateless gRPC microservice that acts as a **regulatory data provider and catch monitor** within the SURIMI simulation loop. It is built on ASP.NET Core's gRPC server framework and exposes a single service class (`FisheriesAuthorityService`) that overrides the generated base from the shared Surimi Protocol. The service is registered as a singleton and uses ASP.NET Core's built-in dependency injection for logging and versioning. All gRPC calls pass through two interceptors: `ExceptionMetadataInterceptor` (which enriches error responses) and `VersionMetadataInterceptor` (which attaches protocol version metadata to responses). Configuration is minimal and driven by environment variables and `appsettings.json`.
+The Fisheries Authority is a gRPC microservice that acts as a **regulatory data provider and catch monitor** within the SURIMI simulation loop. It is built on ASP.NET Core's gRPC server framework and exposes a single service class (`FisheriesAuthorityService`) that overrides the generated base from the shared Surimi Protocol. Per-simulation state is managed through dependency injection scopes: a singleton `SimulationScopeManager` creates one DI scope per simulation on `InitialiseSimulation`, and each scope owns a scoped `IQuotaCalculationService` instance holding the state of exactly one simulation. The scope is disposed on `FinaliseSimulation` or `CancelSimulation`. All gRPC calls pass through two interceptors: `ExceptionMetadataInterceptor` (which enriches error responses) and `VersionMetadataInterceptor` (which attaches protocol version metadata to responses). Configuration is minimal and driven by environment variables and `appsettings.json`.
 
 ### High-Level Architecture
 
@@ -200,7 +200,7 @@ end
 
 ### Key design decisions / trade-offs
 
-- **Stateless server:** The service does not maintain per-simulation state internally; all relevant context is passed in each request. This simplifies horizontal scaling.
+- **Scope-per-simulation state:** The singleton `SimulationScopeManager` maps each `SimulationId` to a dedicated DI scope. The scoped `QuotaCalculationService` inside that scope holds the simulation's state (contract, quota data, species/group map, biomass) without any shared dictionary of simulations, and the scope is disposed when the simulation finalises or is cancelled.
 - **Shared protocol package:** The gRPC contracts are defined in the `BSR.Surimi.Surimi-Protocol` NuGet package (hosted on Buf Schema Registry), ensuring all models share the same Protobuf definitions without per-repo duplication.
 - **Internal domain model mapping:** The service maps the gRPC `Simulation` message to the internal `SURIMI.Datamodel.SurimiContract` type in `GetSurimiContract()`, decoupling the transport layer from domain logic.
 - **Hardcoded TAC stub:** `GetRegulations` currently returns a hardcoded list of TACs (PIL/ART/ESP and KHE/OTB/ESP). This is a placeholder until a real data source (e.g., S3 bucket or database) is connected.

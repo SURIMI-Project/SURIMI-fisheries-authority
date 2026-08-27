@@ -1,6 +1,7 @@
 using EwECore.MSE;
 using SURIMI.Common.gRPC;
 using SURIMI.Common.gRPC.Services;
+using SURIMI_fisheries_authority.Models;
 using SURIMI_fisheries_authority.Services;
 
 namespace SURIMI_fisheries_authority
@@ -23,9 +24,11 @@ namespace SURIMI_fisheries_authority
             builder.Services.AddGrpcReflection();
 
             builder.Services.AddSingleton<ProtocolVersionService>();
-            builder.Services.AddSingleton<IQuotaCalculationService, QuotaCalculationService>();
-            builder.Services.AddSingleton<IMSEStockRecruitment, cMSEStockRecruitment>();
-
+            builder.Services.AddSingleton<SimulationScopeManager>();
+            builder.Services.AddScoped<IRandomService, cRandomService>();
+            builder.Services.AddScoped<IMSEStockRecruitment, cMSEStockRecruitment>();
+            builder.Services.AddScoped<IMSEQuotaCalculator, cMSEQuotaCalculator>();
+            builder.Services.AddScoped<IQuotaCalculationService, QuotaCalculationService>();
 
             builder.Logging.ClearProviders();
             builder.Services.AddLogging(opt =>

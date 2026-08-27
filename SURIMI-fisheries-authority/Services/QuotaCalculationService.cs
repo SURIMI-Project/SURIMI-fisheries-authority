@@ -1,153 +1,173 @@
-﻿using SURIMI.Datamodel;
+﻿using EwECore.MSE;
+using SURIMI.Datamodel;
 using SURIMI_fisheries_authority.Models;
-using System.Collections.Concurrent;
 
 namespace SURIMI_fisheries_authority.Services
 {
     public class QuotaCalculationService : IQuotaCalculationService
     {
         private readonly ILogger<QuotaCalculationService> m_logger;
-        private readonly ConcurrentDictionary<string, Models.Simulation> _simulations = new ConcurrentDictionary<string, Models.Simulation>();
+        private readonly IMSEStockRecruitment m_stockRecruitment;
+        private readonly IMSEQuotaCalculator m_quotaCalculator;
 
-        public QuotaCalculationService(ILogger<QuotaCalculationService> logger)
+
+        public string SimulationId { get; private set; } = string.Empty;
+        public SurimiContract? SurimiContract { get; private set; }
+        public IMSEQuotaData? MSEQuotaData { get; private set; }
+        public SpeciesGroupMap SpeciesGroupMap { get; private set; } = new SpeciesGroupMap();
+        public float[] Biomass { get; private set; } = Array.Empty<float>();
+
+        public QuotaCalculationService(ILogger<QuotaCalculationService> logger, IMSEStockRecruitment stockRecruitment, IMSEQuotaCalculator quotaCalculator)
         {
             m_logger = logger;
+            m_stockRecruitment = stockRecruitment;
+            m_quotaCalculator = quotaCalculator;
         }
 
         public Task InitialiseSimulationAsync(string simulationId, SurimiContract surimiContract)
         {
-            MSEQuotaData mSEQuotaData = new MSEQuotaData(
+            IMSEQuotaData mSEQuotaData = new MSEQuotaData(
                 surimiContract.Items.Species.Count,
-                surimiContract.Items.Species.Count,
-                surimiContract.Items.FleetSegments.Count
+                surimiContract.Items.FleetSegments.Count 
             );
+
+            m_stockRecruitment.Data = mSEQuotaData;
+            m_quotaCalculator.Data = mSEQuotaData;
 
             var speciesGroupMap = new SpeciesGroupMap();
             for (int iGroup = 0; iGroup < surimiContract.Items.Species.Count; iGroup++)
             {
                 var species = surimiContract.Items.Species[iGroup];
-                if (!speciesGroupMap.Add(species.SpeciesCode, species.LifeStage, iGroup))
+                // EwECore uses 1-based group indices, so store iGroup + 1
+                if (!speciesGroupMap.Add(species.SpeciesCode, species.LifeStage, iGroup + 1))
                 {
                     m_logger.LogWarning($"Duplicate species ({species.SpeciesCode}, {species.LifeStage}) in contract for simulation {simulationId}; keeping first group index");
                 }
             }
 
-            if (!_simulations.TryAdd(simulationId, new Models.Simulation(simulationId, surimiContract, mSEQuotaData, speciesGroupMap)))
-            {
-                throw new Exception($"Simulation with Id {simulationId} is already running");
-            }
+            SimulationId = simulationId;
+            SurimiContract = surimiContract;
+            MSEQuotaData = mSEQuotaData;
+            SpeciesGroupMap = speciesGroupMap;
+            // EwECore VB arrays are 1-based with inclusive sizing. To keep the same indexing, we allocate nGroups + 1 elements and ignore index 0.
+            Biomass = new float[mSEQuotaData.nGroups + 1];
 
             m_logger.LogInformation($"Initialized simulation {simulationId}");
             return Task.CompletedTask;
         }
 
-        public Task SimulateStepAsync(string simulationId)
+        public Task SimulateStepAsync()
         {
-            GetSimulation(simulationId);
-            m_logger.LogInformation($"Simulated step for simulation {simulationId}");
+            m_logger.LogInformation($"Simulated step for simulation {SimulationId}");
             return Task.CompletedTask;
         }
 
-        public Task FinaliseSimulationAsync(string simulationId)
+        public Task FinaliseSimulationAsync()
         {
-            if (!_simulations.TryRemove(simulationId, out _))
-            {
-                throw new Exception($"Simulation with Id {simulationId} is not running");
-            }
-
-            m_logger.LogInformation($"Finalised simulation {simulationId}");
+            m_logger.LogInformation($"Finalised simulation {SimulationId}");
             return Task.CompletedTask;
         }
 
-        public Task CancelSimulationAsync(string simulationId)
+        public Task CancelSimulationAsync()
         {
-            if (!_simulations.TryRemove(simulationId, out _))
-            {
-                throw new Exception($"Simulation with Id {simulationId} is not running");
-            }
-
-            m_logger.LogInformation($"Cancelled simulation {simulationId}");
+            m_logger.LogInformation($"Cancelled simulation {SimulationId}");
             return Task.CompletedTask;
         }
 
-        public Task UpdateBiomassAsync(string simulationId, List<BiomassGrid> biomassGrids)
+        public Task UpdateBiomassAsync(List<BiomassGrid> biomassGrids)
         {
-            var simulation = GetSimulation(simulationId);
-
             int applied = 0, skipped = 0;
             foreach (var grid in biomassGrids)
             {
-                if (!simulation.SpeciesGroupMap.TryGetGroupIndex(grid.Species.SpeciesCode, grid.Species.LifeStage, out int iGroup))
+                if (!SpeciesGroupMap.TryGetGroupIndex(grid.Species.SpeciesCode, grid.Species.LifeStage, out int iGroup))
                 {
-                    m_logger.LogWarning($"No group found for species ({grid.Species.SpeciesCode}, {grid.Species.LifeStage}) in simulation {simulationId}; skipping biomass grid");
+                    m_logger.LogWarning($"No group found for species ({grid.Species.SpeciesCode}, {grid.Species.LifeStage}) in simulation {SimulationId}; skipping biomass grid");
                     skipped++;
                     continue;
                 }
 
-                simulation.Biomass[iGroup] += (float)grid.BiomassCells.Sum(cell => cell.Biomass);
+                Biomass[iGroup] += (float)grid.BiomassCells.Sum(cell => cell.Biomass);
                 applied++;
             }
 
-            m_logger.LogInformation($"Aggregated {applied} biomass grids ({skipped} skipped) for simulation {simulationId}");
+            m_logger.LogInformation($"Aggregated {applied} biomass grids ({skipped} skipped) for simulation {SimulationId}");
             return Task.CompletedTask;
         }
 
-        public Task UpdateCatchDispositionAsync(string simulationId, DateTime startDateTime, DateTime endDateTime, CatchDispositionSummary catchDispositionSummary)
+        public Task UpdateCatchDispositionAsync(DateTime startDateTime, DateTime endDateTime, CatchDispositionSummary catchDispositionSummary)
         {
-            GetSimulation(simulationId);
+            var mseQuotaData = MSEQuotaData ?? throw new InvalidOperationException($"Simulation with Id {SimulationId} is not initialised");
 
-            m_logger.LogInformation($"Received {catchDispositionSummary.DispositionGrids?.Count ?? 0} disposition grids for simulation {simulationId} ({startDateTime} - {endDateTime})");
+            int applied = 0, skipped = 0;
+            foreach (var grid in catchDispositionSummary.DispositionGrids ?? Enumerable.Empty<DispositionGrid>())
+            {
+                if (!SpeciesGroupMap.TryGetGroupIndex(grid.Species.SpeciesCode, grid.Species.LifeStage, out int iGroup))
+                {
+                    m_logger.LogWarning($"No group found for species ({grid.Species.SpeciesCode}, {grid.Species.LifeStage}) in simulation {SimulationId}; skipping disposition grid");
+                    skipped++;
+                    continue;
+                }
+
+                // Aggregate the biomass removed from the stock: gross catch minus live discards (live discards survive)
+                mseQuotaData.CatchYearGroup[iGroup] += (float)grid.DispositionCells.Sum(cell => cell.GrossCatchBiomass - cell.LiveDiscardsBiomass);
+                applied++;
+            }
+
+            m_logger.LogInformation($"Aggregated {applied} disposition grids ({skipped} skipped) for simulation {SimulationId} ({startDateTime} - {endDateTime})");
             return Task.CompletedTask;
         }
 
-        public Task UpdateFishingActivityAsync(string simulationId, DateTime startDateTime, DateTime endDateTime, FishingActivitySummary fishingActivitySummary)
+        public Task UpdateFishingActivityAsync(DateTime startDateTime, DateTime endDateTime, FishingActivitySummary fishingActivitySummary)
         {
-            GetSimulation(simulationId);
-
-            m_logger.LogInformation($"Received {fishingActivitySummary.FishingActivities?.Count ?? 0} fishing activities for simulation {simulationId} ({startDateTime} - {endDateTime})");
+            m_logger.LogInformation($"Received {fishingActivitySummary.FishingActivities?.Count ?? 0} fishing activities for simulation {SimulationId} ({startDateTime} - {endDateTime})");
             return Task.CompletedTask;
         }
 
-        public Task CreateRegulationsAsync(string simulationId, RegulationDefinitionsSummary regulationDefinitionsSummary)
+        public Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary)
         {
-            var simulation = GetSimulation(simulationId);
+            var mseQuotaData = MSEQuotaData ?? throw new Exception($"Simulation with Id {SimulationId} is not initialised");
 
             int applied = 0, skipped = 0;
             foreach (var tfm in regulationDefinitionsSummary.TargetFishingMortalities ?? Enumerable.Empty<TargetFishingMortality>())
             {
-                if (!simulation.SpeciesGroupMap.TryGetGroupIndex(tfm.Species.SpeciesCode, tfm.Species.LifeStage, out int iGroup))
+                if (!SpeciesGroupMap.TryGetGroupIndex(tfm.Species.SpeciesCode, tfm.Species.LifeStage, out int iGroup))
                 {
-                    m_logger.LogWarning($"No group found for species ({tfm.Species.SpeciesCode}, {tfm.Species.LifeStage}) in simulation {simulationId}; skipping regulation");
+                    m_logger.LogWarning($"No group found for species ({tfm.Species.SpeciesCode}, {tfm.Species.LifeStage}) in simulation {SimulationId}; skipping regulation");
                     skipped++;
                     continue;
                 }
 
-                simulation.MSEQuotaData.Blim[iGroup] = (float)tfm.BiomassLimit;
-                simulation.MSEQuotaData.Bbase[iGroup] = (float)tfm.BiomassBase;
-                simulation.MSEQuotaData.Fopt[iGroup] = (float)tfm.FMax;
+                mseQuotaData.Blim[iGroup] = (float)tfm.BiomassLimit;
+                mseQuotaData.Bbase[iGroup] = (float)tfm.BiomassBase;
+                mseQuotaData.Fopt[iGroup] = (float)tfm.FMax;
                 applied++;
             }
 
-            m_logger.LogInformation($"Applied {applied} target fishing mortalities ({skipped} skipped) for simulation {simulationId}");
+            m_logger.LogInformation($"Applied {applied} target fishing mortalities ({skipped} skipped) for simulation {SimulationId}");
             return Task.CompletedTask;
         }
 
         /// <summary>
         /// This method is called (By the controller) when the new year starts. It assumes the Biomass, catches etc from last year have been updated and it will calculate the new regulations for the next year. 
         /// </summary>
-        /// <param name="simulationId"></param>
         /// <param name="startDateTime"></param>
         /// <param name="endDateTime"></param>
         /// <returns></returns>
-        public Task<RegulationsSummary> GetRegulationsAsync(string simulationId, DateTime startDateTime, DateTime endDateTime)
+        public Task<RegulationsSummary> GetRegulationsAsync(DateTime startDateTime, DateTime endDateTime)
         {
-            var simulation = GetSimulation(simulationId);
+            m_logger.LogInformation($"Calculating regulations for simulation {SimulationId} ({startDateTime} - {endDateTime})");
 
-            m_logger.LogInformation($"Calculating regulations for simulation {simulationId} ({startDateTime} - {endDateTime})");
+            if (MSEQuotaData is null || Biomass.Length <= MSEQuotaData.nLiving)
+            {
+                throw new InvalidOperationException($"Simulation with Id {SimulationId} is not initialised");
+            }
 
+            m_quotaCalculator.DoAssessment(Biomass, startDateTime.Year);
 
+            var quotas = m_quotaCalculator.UpdateQuotas();
 
-            Array.Clear(simulation.Biomass);
+            Array.Clear(Biomass);
+            Array.Clear(MSEQuotaData.CatchYearGroup);
 
 
             // Dummy Total Allowable Catches. Here you would implement the quota calculation logic (e.g. harvest control rules).
@@ -185,16 +205,6 @@ namespace SURIMI_fisheries_authority.Services
             };
 
             return Task.FromResult(regulationsSummary);
-        }
-
-        private Models.Simulation GetSimulation(string simulationId)
-        {
-            if (!_simulations.TryGetValue(simulationId, out var simulation))
-            {
-                throw new Exception($"Simulation with Id {simulationId} is not running");
-            }
-
-            return simulation;
         }
     }
 }
