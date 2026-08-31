@@ -1,5 +1,7 @@
+using Eii.BlobStore;
 using EwECore.MSE;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using SURIMI.Datamodel;
@@ -11,18 +13,22 @@ namespace SURIMI_fisheries_authority.Tests
     {
         private const string ScenarioName = "test-scenario";
 
-        private static string CreateQuotaShareFolder(string csvContent)
+        private static IBlobStore CreateQuotaShareBlobStore(string csvContent)
         {
-            var folder = Path.Combine(Path.GetTempPath(), $"quota-shares-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(folder);
-            File.WriteAllText(Path.Combine(folder, $"{ScenarioName}-quotashare.csv"), csvContent);
-            return folder;
+            var blobStore = new Mock<IBlobStore>();
+            blobStore
+                .Setup(bs => bs.ExistsAsync($"{ScenarioName}-quotashare.csv", PathType.Input, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true);
+            blobStore
+                .Setup(bs => bs.ReadAllTextAsync($"{ScenarioName}-quotashare.csv", PathType.Input, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(csvContent);
+            return blobStore.Object;
         }
 
-        private static string CreateMatchingQuotaShareFolder()
+        private static IBlobStore CreateMatchingQuotaShareBlobStore()
         {
             // Matches the species and fleets of CreateContract exactly
-            return CreateQuotaShareFolder(
+            return CreateQuotaShareBlobStore(
                 "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
                 "PIL;;0,75;0,25;1\n" +
                 "KHE;;0,5;0,5;1\n");
@@ -39,7 +45,7 @@ namespace SURIMI_fisheries_authority.Tests
                 NullLogger<QuotaCalculationService>.Instance,
                 stockRecruitment.Object,
                 quotaCalculator.Object,
-                new QuotaShareLoader(CreateMatchingQuotaShareFolder()));
+                new QuotaShareLoader(CreateMatchingQuotaShareBlobStore(), NullLogger<QuotaShareLoader>.Instance));
 
             return (service, stockRecruitment, quotaCalculator);
         }
@@ -402,7 +408,7 @@ namespace SURIMI_fisheries_authority.Tests
                 NullLogger<QuotaCalculationService>.Instance,
                 stockRecruitment.Object,
                 quotaCalculator.Object,
-                new QuotaShareLoader(CreateQuotaShareFolder(csvContent)));
+                new QuotaShareLoader(CreateQuotaShareBlobStore(csvContent), NullLogger<QuotaShareLoader>.Instance));
         }
 
         [Fact]
@@ -416,9 +422,9 @@ namespace SURIMI_fisheries_authority.Tests
                 NullLogger<QuotaCalculationService>.Instance,
                 stockRecruitment.Object,
                 quotaCalculator.Object,
-                new QuotaShareLoader(CreateQuotaShareFolder(
+                new QuotaShareLoader(CreateQuotaShareBlobStore(
                     "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
-                    "PIL;;0,75;0,25;1\n")));
+                    "PIL;;0,75;0,25;1\n"), NullLogger<QuotaShareLoader>.Instance));
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
 
             // Act

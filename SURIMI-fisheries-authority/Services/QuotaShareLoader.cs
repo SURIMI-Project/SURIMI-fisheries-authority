@@ -15,13 +15,16 @@ namespace SURIMI_fisheries_authority.Services
         private const string FileSuffix = "-quotashare.csv";
         private const char Delimiter = ';';
         private readonly IBlobStore _blobStore;
+        private readonly ILogger<QuotaShareLoader> _logger;
+
 
         private static readonly NumberFormatInfo s_numberFormat = new() { NumberDecimalSeparator = "," };
 
 
-        public QuotaShareLoader(IBlobStore blobStore)
+        public QuotaShareLoader(IBlobStore blobStore, ILogger<QuotaShareLoader> logger)
         {
             _blobStore = blobStore;
+            _logger = logger;
         }
 
         public async Task<FleetQuotaShareMap> LoadAsync(string scenarioName)
@@ -51,7 +54,7 @@ namespace SURIMI_fisheries_authority.Services
 
                 ParseRow(lines[iLine], iLine + 1, fleets, fleetColumnCount, map, $"{scenarioName}{FileSuffix}");
             }
-
+            _logger.LogInformation("Loaded {SpeciesCount} species quota shares for scenario {ScenarioName}", map.SpeciesCount, scenarioName);
             return map;
         }
 

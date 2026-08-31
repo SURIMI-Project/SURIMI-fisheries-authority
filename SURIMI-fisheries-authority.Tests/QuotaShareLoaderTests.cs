@@ -1,4 +1,8 @@
+using Eii.BlobStore;
 using FluentAssertions;
+using Grpc.Core;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using SURIMI_fisheries_authority.Services;
 
 namespace SURIMI_fisheries_authority.Tests
@@ -7,26 +11,29 @@ namespace SURIMI_fisheries_authority.Tests
     {
         private const string ScenarioName = "test-scenario";
 
-        private static string CreateQuotaShareFolder(string csvContent)
+        private static QuotaShareLoader CreateLoader(string csvContent)
         {
-            var folder = Path.Combine(Path.GetTempPath(), $"quota-shares-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(folder);
-            File.WriteAllText(Path.Combine(folder, $"{ScenarioName}-quotashare.csv"), csvContent);
-            return folder;
+            var blobStore = new Mock<IBlobStore>();
+            blobStore
+                .Setup(bs => bs.ExistsAsync($"{ScenarioName}-quotashare.csv", PathType.Input, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true);
+            blobStore
+                .Setup(bs => bs.ReadAllTextAsync($"{ScenarioName}-quotashare.csv", PathType.Input, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(csvContent);
+            return new QuotaShareLoader(blobStore.Object, NullLogger<QuotaShareLoader>.Instance);
         }
 
         [Fact]
-        public void Load_ParsesWideFormatFile()
+        public async Task Load_ParsesWideFormatFile()
         {
             // Arrange
-            var folder = CreateQuotaShareFolder(
+            var loader = CreateLoader(
                 "species_code;life_stage;ART,ESP;ART,FRA;OTB,ESP;Sum\n" +
                 "PIL;;0,5;0,25;0,25;1\n" +
                 "KHE;ADULT;0,75;;0,25;1\n");
-            var loader = new QuotaShareLoader(folder);
 
             // Act
-            var map = loader.Load(ScenarioName);
+            var map = await loader.LoadAsync(ScenarioName);
 
             // Assert
             map.Fleets.Should().HaveCount(3);
@@ -47,87 +54,84 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
-        public void Load_ThrowsWhenFileMissing()
+        public async Task Load_ThrowsWhenFileMissing()
         {
             // Arrange
-            var folder = Path.Combine(Path.GetTempPath(), $"quota-shares-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(folder);
-            var loader = new QuotaShareLoader(folder);
+            var blobStore = new Mock<IBlobStore>();
+            blobStore
+                .Setup(bs => bs.ExistsAsync(It.IsAny<string>(), PathType.Input, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(false);
+            var loader = new QuotaShareLoader(blobStore.Object, NullLogger<QuotaShareLoader>.Instance);
 
             // Act & Assert
-            var act = () => loader.Load(ScenarioName);
-            act.Should().Throw<FileNotFoundException>();
+            var act = () => loader.LoadAsync(ScenarioName);
+            await act.Should().ThrowAsync<RpcException>();
         }
 
         [Fact]
-        public void Load_ThrowsWhenSharesDoNotSumToOne()
+        public async Task Load_ThrowsWhenSharesDoNotSumToOne()
         {
             // Arrange
-            var folder = CreateQuotaShareFolder(
+            var loader = CreateLoader(
                 "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
                 "PIL;;0,6;0,3;1\n");
-            var loader = new QuotaShareLoader(folder);
 
             // Act & Assert
-            var act = () => loader.Load(ScenarioName);
-            act.Should().Throw<InvalidDataException>().WithMessage("*PIL*sum*");
+            var act = () => loader.LoadAsync(ScenarioName);
+            await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*PIL*sum*");
         }
 
         [Fact]
-        public void Load_ThrowsOnMalformedShareValue()
+        public async Task Load_ThrowsOnMalformedShareValue()
         {
             // Arrange
-            var folder = CreateQuotaShareFolder(
+            var loader = CreateLoader(
                 "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
                 "PIL;;abc;0,5;1\n");
-            var loader = new QuotaShareLoader(folder);
 
             // Act & Assert
-            var act = () => loader.Load(ScenarioName);
-            act.Should().Throw<InvalidDataException>().WithMessage("*abc*");
+            var act = () => loader.LoadAsync(ScenarioName);
+            await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*abc*");
         }
 
         [Fact]
-        public void Load_ThrowsOnMissingColumns()
+        public async Task Load_ThrowsOnMissingColumns()
         {
             // Arrange
-            var folder = CreateQuotaShareFolder(
+            var loader = CreateLoader(
                 "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
                 "PIL;;1\n");
-            var loader = new QuotaShareLoader(folder);
 
             // Act & Assert
-            var act = () => loader.Load(ScenarioName);
-            act.Should().Throw<InvalidDataException>().WithMessage("*columns*");
+            var act = () => loader.LoadAsync(ScenarioName);
+            await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*columns*");
         }
 
         [Fact]
-        public void Load_ThrowsOnDuplicateSpeciesRow()
+        public async Task Load_ThrowsOnDuplicateSpeciesRow()
         {
             // Arrange
-            var folder = CreateQuotaShareFolder(
+            var loader = CreateLoader(
                 "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
                 "PIL;;0,5;0,5;1\n" +
                 "PIL;;1;;1\n");
-            var loader = new QuotaShareLoader(folder);
 
             // Act & Assert
-            var act = () => loader.Load(ScenarioName);
-            act.Should().Throw<InvalidDataException>().WithMessage("*Duplicate species*");
+            var act = () => loader.LoadAsync(ScenarioName);
+            await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*Duplicate species*");
         }
 
         [Fact]
-        public void Load_ThrowsOnInvalidFleetColumn()
+        public async Task Load_ThrowsOnInvalidFleetColumn()
         {
             // Arrange
-            var folder = CreateQuotaShareFolder(
+            var loader = CreateLoader(
                 "species_code;life_stage;ARTESP;Sum\n" +
                 "PIL;;1;1\n");
-            var loader = new QuotaShareLoader(folder);
 
             // Act & Assert
-            var act = () => loader.Load(ScenarioName);
-            act.Should().Throw<InvalidDataException>().WithMessage("*fleet column*");
+            var act = () => loader.LoadAsync(ScenarioName);
+            await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*fleet column*");
         }
     }
 }
