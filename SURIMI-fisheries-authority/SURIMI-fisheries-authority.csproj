@@ -10,6 +10,7 @@
 
     <ItemGroup>
         <PackageReference Include="BSR.Surimi.Surimi-Protocol.Grpc.Csharp" Version="1.82.10101.83+2a653bbe4cea" />
+        <PackageReference Include="Eii.BlobStore.S3" Version="1.0.*" />
         <PackageReference Include="Eii.Ecopath.EwECore" Version="6.7.94-MSE.1" />
         <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.80.0" />
         <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.22.1" />
@@ -18,6 +19,10 @@
         <PackageReference Include="Grpc.StatusProto" Version="2.71.0" />
         <PackageReference Include="SURIMI.Common" Version="1.0.*" />
         <PackageReference Include="SURIMI.Datamodel" Version="3.0.*" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Update="Includes\*.csv" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
 </Project>

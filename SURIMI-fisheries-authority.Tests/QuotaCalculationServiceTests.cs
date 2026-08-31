@@ -9,16 +9,37 @@ namespace SURIMI_fisheries_authority.Tests
 {
     public class QuotaCalculationServiceTests
     {
+        private const string ScenarioName = "test-scenario";
+
+        private static string CreateQuotaShareFolder(string csvContent)
+        {
+            var folder = Path.Combine(Path.GetTempPath(), $"quota-shares-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, $"{ScenarioName}-quotashare.csv"), csvContent);
+            return folder;
+        }
+
+        private static string CreateMatchingQuotaShareFolder()
+        {
+            // Matches the species and fleets of CreateContract exactly
+            return CreateQuotaShareFolder(
+                "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
+                "PIL;;0,75;0,25;1\n" +
+                "KHE;;0,5;0,5;1\n");
+        }
+
         private static (QuotaCalculationService Service, Mock<IMSEStockRecruitment> StockRecruitment, Mock<IMSEQuotaCalculator> QuotaCalculator) CreateServiceWithMocks()
         {
             var stockRecruitment = new Mock<IMSEStockRecruitment>();
             var quotaCalculator = new Mock<IMSEQuotaCalculator>();
-            quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(Array.Empty<float>());
+            // nGroups + 1 elements for 1-based EwECore indexing
+            quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[3]);
 
             var service = new QuotaCalculationService(
                 NullLogger<QuotaCalculationService>.Instance,
                 stockRecruitment.Object,
-                quotaCalculator.Object);
+                quotaCalculator.Object,
+                new QuotaShareLoader(CreateMatchingQuotaShareFolder()));
 
             return (service, stockRecruitment, quotaCalculator);
         }
@@ -48,7 +69,7 @@ namespace SURIMI_fisheries_authority.Tests
         private static async Task<QuotaCalculationService> CreateInitialisedServiceAsync()
         {
             var service = CreateService();
-            await service.InitialiseSimulationAsync("sim-1", CreateContract());
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
             return service;
         }
 
@@ -192,7 +213,7 @@ namespace SURIMI_fisheries_authority.Tests
             var (service, stockRecruitment, quotaCalculator) = CreateServiceWithMocks();
 
             // Act
-            await service.InitialiseSimulationAsync("sim-1", CreateContract());
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
 
             // Assert
             service.SimulationId.Should().Be("sim-1");
@@ -213,7 +234,7 @@ namespace SURIMI_fisheries_authority.Tests
             contract.Items!.Species!.Add(new Species { SpeciesCode = "PIL", LifeStage = "" });
 
             // Act
-            await service.InitialiseSimulationAsync("sim-1", contract);
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, contract);
 
             // Assert
             service.SpeciesGroupMap.TryGetGroupIndex("PIL", "", out int iGroup).Should().BeTrue();
@@ -335,7 +356,7 @@ namespace SURIMI_fisheries_authority.Tests
             quotaCalculator
                 .Setup(qc => qc.DoAssessment(It.IsAny<float[]>(), It.IsAny<int>()))
                 .Callback<float[], int>((b, year) => { assessedBiomass = (float[])b.Clone(); assessedYear = year; });
-            await service.InitialiseSimulationAsync("sim-1", CreateContract());
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
             await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
 
             // Act
@@ -371,6 +392,113 @@ namespace SURIMI_fisheries_authority.Tests
             // Act & Assert
             var act = () => service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
             await act.Should().ThrowAsync<InvalidOperationException>();
+        }
+
+        private static QuotaCalculationService CreateServiceWithQuotaShareCsv(string csvContent)
+        {
+            var stockRecruitment = new Mock<IMSEStockRecruitment>();
+            var quotaCalculator = new Mock<IMSEQuotaCalculator>();
+            return new QuotaCalculationService(
+                NullLogger<QuotaCalculationService>.Instance,
+                stockRecruitment.Object,
+                quotaCalculator.Object,
+                new QuotaShareLoader(CreateQuotaShareFolder(csvContent)));
+        }
+
+        [Fact]
+        public async Task GetRegulations_DividesQuotaEquallyWhenSpeciesNotInShareFile()
+        {
+            // Arrange: CSV lacks species KHE, so its quota is divided equally among the contract fleets
+            var stockRecruitment = new Mock<IMSEStockRecruitment>();
+            var quotaCalculator = new Mock<IMSEQuotaCalculator>();
+            quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
+            var service = new QuotaCalculationService(
+                NullLogger<QuotaCalculationService>.Instance,
+                stockRecruitment.Object,
+                quotaCalculator.Object,
+                new QuotaShareLoader(CreateQuotaShareFolder(
+                    "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
+                    "PIL;;0,75;0,25;1\n")));
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+
+            // Act
+            var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
+
+            // Assert
+            regulations.TotalAllowableCatches.Should().HaveCount(4);
+            var kheArt = regulations.TotalAllowableCatches!.Single(tac => tac.Species!.SpeciesCode == "KHE" && tac.FleetSegment!.GearCode == "ART");
+            kheArt.Catch.Should().Be(20.0);
+            var kheOtb = regulations.TotalAllowableCatches!.Single(tac => tac.Species!.SpeciesCode == "KHE" && tac.FleetSegment!.GearCode == "OTB");
+            kheOtb.Catch.Should().Be(20.0);
+        }
+
+        [Fact]
+        public async Task InitialiseSimulation_ThrowsWhenQuotaShareSpeciesNotInContract()
+        {
+            // Arrange: CSV contains species XXX that is not present in the contract
+            var service = CreateServiceWithQuotaShareCsv(
+                "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
+                "PIL;;0,75;0,25;1\n" +
+                "KHE;;0,5;0,5;1\n" +
+                "XXX;;1;;1\n");
+
+            // Act & Assert
+            var act = () => service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*XXX*not in contract*");
+        }
+
+        [Fact]
+        public async Task InitialiseSimulation_ThrowsWhenQuotaShareFleetNotInContract()
+        {
+            // Arrange: CSV contains fleet (TM, FRA) that is not present in the contract
+            var service = CreateServiceWithQuotaShareCsv(
+                "species_code;life_stage;ART,ESP;OTB,ESP;TM,FRA;Sum\n" +
+                "PIL;;0,75;0,25;;1\n" +
+                "KHE;;0,5;0,5;;1\n");
+
+            // Act & Assert
+            var act = () => service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*TM*not in contract*");
+        }
+
+        [Fact]
+        public async Task InitialiseSimulation_LoadsQuotaSharesOnExactMatch()
+        {
+            // Arrange & Act
+            var service = await CreateInitialisedServiceAsync();
+
+            // Assert
+            service.QuotaShares.Should().NotBeNull();
+            service.QuotaShares!.SpeciesCount.Should().Be(2);
+            service.QuotaShares.Fleets.Should().HaveCount(2);
+        }
+
+        [Fact]
+        public async Task GetRegulations_SplitsQuotaAcrossFleets()
+        {
+            // Arrange: quota shares are PIL: 0.75/0.25 and KHE: 0.5/0.5 for fleets (ART, ESP) and (OTB, ESP)
+            var (service, _, quotaCalculator) = CreateServiceWithMocks();
+            quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+
+            // Act
+            var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
+
+            // Assert
+            regulations.TotalAllowableCatches.Should().HaveCount(4);
+
+            var pilArt = regulations.TotalAllowableCatches!.Single(tac => tac.Species!.SpeciesCode == "PIL" && tac.FleetSegment!.GearCode == "ART");
+            pilArt.FleetSegment!.CountryCode.Should().Be("ESP");
+            pilArt.Catch.Should().Be(75.0);
+
+            var pilOtb = regulations.TotalAllowableCatches!.Single(tac => tac.Species!.SpeciesCode == "PIL" && tac.FleetSegment!.GearCode == "OTB");
+            pilOtb.Catch.Should().Be(25.0);
+
+            var kheArt = regulations.TotalAllowableCatches!.Single(tac => tac.Species!.SpeciesCode == "KHE" && tac.FleetSegment!.GearCode == "ART");
+            kheArt.Catch.Should().Be(20.0);
+
+            var kheOtb = regulations.TotalAllowableCatches!.Single(tac => tac.Species!.SpeciesCode == "KHE" && tac.FleetSegment!.GearCode == "OTB");
+            kheOtb.Catch.Should().Be(20.0);
         }
     }
 }
