@@ -1,3 +1,5 @@
+using Eii.BlobStore;
+using Eii.BlobStore.S3;
 using EwECore.MSE;
 using SURIMI.Common.gRPC;
 using SURIMI.Common.gRPC.Services;
@@ -13,6 +15,23 @@ namespace SURIMI_fisheries_authority
             var builder = WebApplication.CreateBuilder(args);
             builder.AddServiceDefaults();
 
+            builder.Services.AddSingleton<IBlobStore>(sp =>
+            {
+                // if AWS_ACCESS_KEY_ID is set, use S3 compatible storage
+                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID")))
+                {
+                    return new S3BlobStore(
+                        Environment.GetEnvironmentVariable("AWS_S3_ENDPOINT"),
+                        Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID"),
+                        Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY"),
+                        Environment.GetEnvironmentVariable("AWS_BUCKET_NAME"),
+                        inputBasePrefix: @"controller", outputBasePrefix: @"controller", localInputRoot: "Includes", localOutputRoot: "Output");
+                }
+
+                // Default local Filesystem
+                return new LocalBlobStore(inputRoot: "Includes", outputRoot: "Output");
+            });
+
             // Add services to the container.
             builder.Services.AddGrpc(options =>
             {
@@ -25,6 +44,7 @@ namespace SURIMI_fisheries_authority
 
             builder.Services.AddSingleton<ProtocolVersionService>();
             builder.Services.AddSingleton<SimulationScopeManager>();
+            builder.Services.AddSingleton<QuotaShareLoader>();
             builder.Services.AddScoped<IRandomService, cRandomService>();
             builder.Services.AddScoped<IMSEStockRecruitment, cMSEStockRecruitment>();
             builder.Services.AddScoped<IMSEQuotaCalculator, cMSEQuotaCalculator>();

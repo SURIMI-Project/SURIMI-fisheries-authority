@@ -9,22 +9,25 @@ namespace SURIMI_fisheries_authority.Services
         private readonly ILogger<QuotaCalculationService> m_logger;
         private readonly IMSEStockRecruitment m_stockRecruitment;
         private readonly IMSEQuotaCalculator m_quotaCalculator;
+        private readonly QuotaShareLoader m_quotaShareLoader;
 
 
         public string SimulationId { get; private set; } = string.Empty;
         public SurimiContract? SurimiContract { get; private set; }
         public IMSEQuotaData? MSEQuotaData { get; private set; }
         public SpeciesGroupMap SpeciesGroupMap { get; private set; } = new SpeciesGroupMap();
+        public FleetQuotaShareMap? QuotaShares { get; private set; }
         public float[] Biomass { get; private set; } = Array.Empty<float>();
 
-        public QuotaCalculationService(ILogger<QuotaCalculationService> logger, IMSEStockRecruitment stockRecruitment, IMSEQuotaCalculator quotaCalculator)
+        public QuotaCalculationService(ILogger<QuotaCalculationService> logger, IMSEStockRecruitment stockRecruitment, IMSEQuotaCalculator quotaCalculator, QuotaShareLoader quotaShareLoader)
         {
             m_logger = logger;
             m_stockRecruitment = stockRecruitment;
             m_quotaCalculator = quotaCalculator;
+            m_quotaShareLoader = quotaShareLoader;
         }
 
-        public Task InitialiseSimulationAsync(string simulationId, SurimiContract surimiContract)
+        public async Task InitialiseSimulationAsync(string simulationId, string scenarioName, SurimiContract surimiContract)
         {
             IMSEQuotaData mSEQuotaData = new MSEQuotaData(
                 surimiContract.Items.Species.Count,
@@ -45,15 +48,40 @@ namespace SURIMI_fisheries_authority.Services
                 }
             }
 
+            var quotaShares = await m_quotaShareLoader.LoadAsync(scenarioName);
+            ValidateQuotaSharesMatchContract(quotaShares, surimiContract, scenarioName);
+
             SimulationId = simulationId;
             SurimiContract = surimiContract;
             MSEQuotaData = mSEQuotaData;
             SpeciesGroupMap = speciesGroupMap;
+            QuotaShares = quotaShares;
             // EwECore VB arrays are 1-based with inclusive sizing. To keep the same indexing, we allocate nGroups + 1 elements and ignore index 0.
             Biomass = new float[mSEQuotaData.nGroups + 1];
 
-            m_logger.LogInformation($"Initialized simulation {simulationId}");
-            return Task.CompletedTask;
+            m_logger.LogInformation($"Initialized simulation {simulationId} with quota shares for {quotaShares.SpeciesCount} species and {quotaShares.Fleets.Count} fleets from scenario {scenarioName}");
+        }
+
+        private static void ValidateQuotaSharesMatchContract(FleetQuotaShareMap quotaShares, SurimiContract surimiContract, string scenarioName)
+        {
+            var contractSpecies = surimiContract.Items.Species
+                .Select(s => new SpeciesKey(s.SpeciesCode, s.LifeStage))
+                .ToHashSet();
+            var csvSpecies = quotaShares.SpeciesKeys.ToHashSet();
+
+            var contractFleets = surimiContract.Items.FleetSegments
+                .Select(f => new FleetKey(f.GearCode, f.CountryCode))
+                .ToHashSet();
+            var csvFleets = quotaShares.Fleets.ToHashSet();
+
+            var problems = new List<string>();
+            problems.AddRange(csvSpecies.Except(contractSpecies).Select(s => $"species ({s.SpeciesCode}, {s.LifeStage}) in quota share file but not in contract"));
+            problems.AddRange(csvFleets.Except(contractFleets).Select(f => $"fleet ({f.GearCode}, {f.CountryCode}) in quota share file but not in contract"));
+
+            if (problems.Count > 0)
+            {
+                throw new InvalidOperationException($"Quota share file for scenario {scenarioName} does not match the simulation contract: {string.Join("; ", problems)}");
+            }
         }
 
         public Task SimulateStepAsync()
@@ -157,7 +185,7 @@ namespace SURIMI_fisheries_authority.Services
         {
             m_logger.LogInformation($"Calculating regulations for simulation {SimulationId} ({startDateTime} - {endDateTime})");
 
-            if (MSEQuotaData is null || Biomass.Length <= MSEQuotaData.nLiving)
+            if (MSEQuotaData is null || QuotaShares is null || SurimiContract is null || Biomass.Length <= MSEQuotaData.nLiving)
             {
                 throw new InvalidOperationException($"Simulation with Id {SimulationId} is not initialised");
             }
@@ -169,40 +197,59 @@ namespace SURIMI_fisheries_authority.Services
             Array.Clear(Biomass);
             Array.Clear(MSEQuotaData.CatchYearGroup);
 
+            // Species without an entry in the quota share file get their quota divided equally among all fleets
+            var contractFleets = SurimiContract.Items.FleetSegments
+                .Select(f => new FleetKey(f.GearCode, f.CountryCode))
+                .Distinct()
+                .ToList();
+            var equalShares = contractFleets
+                .Select(fleet => (Fleet: fleet, Share: 1.0f / contractFleets.Count))
+                .ToList();
 
-            // Dummy Total Allowable Catches. Here you would implement the quota calculation logic (e.g. harvest control rules).
+            // Split each species quota across the fleets according to the scenario quota shares
+            int applied = 0, skipped = 0;
+            var totalAllowableCatches = new List<TotalAllowableCatch>();
+            foreach (var species in SurimiContract.Items.Species)
+            {
+                if (!SpeciesGroupMap.TryGetGroupIndex(species.SpeciesCode, species.LifeStage, out int iGroup))
+                {
+                    m_logger.LogWarning($"No group found for species ({species.SpeciesCode}, {species.LifeStage}) in simulation {SimulationId}; skipping quota shares");
+                    skipped++;
+                    continue;
+                }
+
+                if (!QuotaShares.TryGetShares(species.SpeciesCode, species.LifeStage, out var shares))
+                {
+                    m_logger.LogInformation($"No quota shares configured for species ({species.SpeciesCode}, {species.LifeStage}) in simulation {SimulationId}; dividing quota equally among {contractFleets.Count} fleets");
+                    shares = equalShares;
+                }
+
+                foreach (var (fleet, share) in shares)
+                {
+                    totalAllowableCatches.Add(new TotalAllowableCatch
+                    {
+                        Species = new Species()
+                        {
+                            SpeciesCode = species.SpeciesCode,
+                            LifeStage = species.LifeStage
+                        },
+                        FleetSegment = new FleetSegment()
+                        {
+                            GearCode = fleet.GearCode,
+                            CountryCode = fleet.CountryCode
+                        },
+                        Catch = quotas[iGroup] * share
+                    });
+                }
+                applied++;
+            }
+
             var regulationsSummary = new RegulationsSummary
             {
-                TotalAllowableCatches = new List<TotalAllowableCatch>
-                {
-                    new TotalAllowableCatch
-                    {
-                        Species = new Species()
-                        {
-                            SpeciesCode = "PIL",
-                        },
-                        FleetSegment = new FleetSegment()
-                        {
-                            GearCode = "ART",
-                            CountryCode = "ESP"
-                        },
-                        Catch = 2323.34
-                    },
-                    new TotalAllowableCatch
-                    {
-                        Species = new Species()
-                        {
-                            SpeciesCode = "KHE",
-                        },
-                        FleetSegment = new FleetSegment()
-                        {
-                            GearCode = "OTB",
-                            CountryCode = "ESP"
-                        },
-                        Catch = 500.0005
-                    }
-                }
+                TotalAllowableCatches = totalAllowableCatches
             };
+
+            m_logger.LogInformation($"Calculated {totalAllowableCatches.Count} total allowable catches for {applied} species ({skipped} skipped) in simulation {SimulationId}");
 
             return Task.FromResult(regulationsSummary);
         }
