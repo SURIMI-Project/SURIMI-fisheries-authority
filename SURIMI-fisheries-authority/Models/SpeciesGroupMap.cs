@@ -22,8 +22,11 @@ namespace SURIMI_fisheries_authority.Models
         /// <summary>
         /// Adds a mapping. Returns false if the key was already present.
         /// </summary>
-        public bool Add(string speciesCode, string lifeStage, int groupIndex)
-            => m_groupIndices.TryAdd(new SpeciesKey(speciesCode, lifeStage), groupIndex);
+        public bool Add(string speciesCode, string lifeStage, out int groupIndex)
+        {
+            groupIndex = m_groupIndices.Count + 1;
+            return m_groupIndices.TryAdd(new SpeciesKey(speciesCode, lifeStage), groupIndex);
+        }
 
         public bool TryGetGroupIndex(string speciesCode, string lifeStage, out int groupIndex)
             => m_groupIndices.TryGetValue(new SpeciesKey(speciesCode, lifeStage), out groupIndex);

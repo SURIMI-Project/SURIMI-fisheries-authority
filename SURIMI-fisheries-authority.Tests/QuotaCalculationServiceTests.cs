@@ -34,7 +34,31 @@ namespace SURIMI_fisheries_authority.Tests
                 "KHE;;0,5;0,5;1\n");
         }
 
+        private static IBlobStore CreateRecruitmentBlobStore(string csvContent)
+        {
+            var blobStore = new Mock<IBlobStore>();
+            blobStore
+                .Setup(bs => bs.ExistsAsync($"{ScenarioName}-recruitment.csv", PathType.Input, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true);
+            blobStore
+                .Setup(bs => bs.ReadAllTextAsync($"{ScenarioName}-recruitment.csv", PathType.Input, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(csvContent);
+            return blobStore.Object;
+        }
+
+        private static IBlobStore CreateMatchingRecruitmentBlobStore()
+        {
+            // Matches the species of CreateContract exactly
+            return CreateRecruitmentBlobStore(
+                "species_code;life_stage;RstockRatio;RHalfB0Ratio;cvRec\n" +
+                "PIL;;0,893;0,2;0,8\n" +
+                "KHE;;0,7134952;0,25;0,9\n");
+        }
+
         private static (QuotaCalculationService Service, Mock<IMSEStockRecruitment> StockRecruitment, Mock<IMSEQuotaCalculator> QuotaCalculator) CreateServiceWithMocks()
+            => CreateServiceWithMocks(CreateMatchingRecruitmentBlobStore());
+
+        private static (QuotaCalculationService Service, Mock<IMSEStockRecruitment> StockRecruitment, Mock<IMSEQuotaCalculator> QuotaCalculator) CreateServiceWithMocks(IBlobStore recruitmentBlobStore)
         {
             var stockRecruitment = new Mock<IMSEStockRecruitment>();
             var quotaCalculator = new Mock<IMSEQuotaCalculator>();
@@ -45,7 +69,8 @@ namespace SURIMI_fisheries_authority.Tests
                 NullLogger<QuotaCalculationService>.Instance,
                 stockRecruitment.Object,
                 quotaCalculator.Object,
-                new QuotaShareLoader(CreateMatchingQuotaShareBlobStore(), NullLogger<QuotaShareLoader>.Instance));
+                new QuotaShareLoader(CreateMatchingQuotaShareBlobStore(), NullLogger<QuotaShareLoader>.Instance),
+                new RecruitmentLoader(recruitmentBlobStore, NullLogger<RecruitmentLoader>.Instance));
 
             return (service, stockRecruitment, quotaCalculator);
         }
@@ -72,11 +97,42 @@ namespace SURIMI_fisheries_authority.Tests
             };
         }
 
+        private static RegulationDefinitionsSummary CreateRegulationSummary()
+        {
+            return new RegulationDefinitionsSummary
+            {
+                TargetFishingMortalities =
+                [
+                    new TargetFishingMortality
+                    {
+                        Species = new Species { SpeciesCode = "PIL", LifeStage = "" },
+                        BiomassLimit = 1.0,
+                        BiomassBase = 2.0,
+                        FMax = 0.05
+                    },
+                    new TargetFishingMortality
+                    {
+                        Species = new Species { SpeciesCode = "KHE", LifeStage = "" },
+                        BiomassLimit = 3.0,
+                        BiomassBase = 4.0,
+                        FMax = 0.1
+                    }
+                ]
+            };
+        }
+
         private static async Task<QuotaCalculationService> CreateInitialisedServiceAsync()
         {
-            var service = CreateService();
-            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            var (service, _, _) = await CreateInitialisedServiceWithMocksAsync();
             return service;
+        }
+
+        private static async Task<(QuotaCalculationService Service, Mock<IMSEStockRecruitment> StockRecruitment, Mock<IMSEQuotaCalculator> QuotaCalculator)> CreateInitialisedServiceWithMocksAsync()
+        {
+            var (service, stockRecruitment, quotaCalculator) = CreateServiceWithMocks();
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
+            return (service, stockRecruitment, quotaCalculator);
         }
 
         private static BiomassGrid CreateBiomassGrid(string speciesCode, params double[] cellBiomasses)
@@ -108,6 +164,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
+            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 100.0)]);
             var summary = new CatchDispositionSummary
             {
                 DispositionGrids =
@@ -121,8 +178,8 @@ namespace SURIMI_fisheries_authority.Tests
             await service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, summary);
 
             // Assert
-            service.MSEQuotaData!.CatchYearGroup[1].Should().Be(22.0f);
-            service.MSEQuotaData.CatchYearGroup[2].Should().Be(0.0f);
+            service.m_MSEQuotaData!.CatchYearGroup[1].Should().Be(22.0f);
+            service.m_MSEQuotaData.CatchYearGroup[2].Should().Be(0.0f);
         }
 
         [Fact]
@@ -130,6 +187,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
+            await service.UpdateBiomassAsync([CreateBiomassGrid("KHE", 100.0)]);
             var summary = new CatchDispositionSummary
             {
                 DispositionGrids = [CreateGrid("KHE", "OTB", (10.0, 3.0, 2.0))]
@@ -140,28 +198,22 @@ namespace SURIMI_fisheries_authority.Tests
 
             // Assert
             // Dead discards are part of the gross catch and remain removed from the stock; only live discards survive
-            service.MSEQuotaData!.CatchYearGroup[2].Should().Be(7.0f);
+            service.m_MSEQuotaData!.CatchYearGroup[2].Should().Be(7.0f);
         }
 
         [Fact]
-        public async Task UpdateCatchDisposition_SkipsUnmappedSpeciesWithoutThrowing()
+        public async Task UpdateCatchDisposition_ThrowsWhenSpeciesUnmapped()
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
             var summary = new CatchDispositionSummary
             {
-                DispositionGrids =
-                [
-                    CreateGrid("XXX", "ART", (10.0, 0.0, 0.0)),
-                    CreateGrid("PIL", "ART", (4.0, 0.0, 0.0))
-                ]
+                DispositionGrids = [CreateGrid("XXX", "ART", (10.0, 0.0, 0.0))]
             };
 
-            // Act
-            await service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, summary);
-
-            // Assert
-            service.MSEQuotaData!.CatchYearGroup[1].Should().Be(4.0f);
+            // Act & Assert
+            var act = () => service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, summary);
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*No group found*");
         }
 
         [Fact]
@@ -169,6 +221,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
+            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 100.0)]);
 
             // Act
             await service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, new CatchDispositionSummary
@@ -181,7 +234,7 @@ namespace SURIMI_fisheries_authority.Tests
             });
 
             // Assert
-            service.MSEQuotaData!.CatchYearGroup[1].Should().Be(15.0f);
+            service.m_MSEQuotaData!.CatchYearGroup[1].Should().Be(15.0f);
         }
 
         [Fact]
@@ -200,6 +253,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
+            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 100.0)]);
             await service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, new CatchDispositionSummary
             {
                 DispositionGrids = [CreateGrid("PIL", "ART", (10.0, 0.0, 0.0))]
@@ -209,42 +263,62 @@ namespace SURIMI_fisheries_authority.Tests
             await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
 
             // Assert
-            service.MSEQuotaData!.CatchYearGroup.Should().OnlyContain(v => v == 0.0f);
+            service.m_MSEQuotaData!.CatchYearGroup.Should().OnlyContain(v => v == 0.0f);
         }
 
         [Fact]
         public async Task InitialiseSimulation_SetsUpSimulationState()
         {
             // Arrange
-            var (service, stockRecruitment, quotaCalculator) = CreateServiceWithMocks();
-
-            // Act
-            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
-
-            // Assert
-            service.SimulationId.Should().Be("sim-1");
-            service.MSEQuotaData.Should().NotBeNull();
-            service.MSEQuotaData!.nGroups.Should().Be(2);
-            service.MSEQuotaData.nFleets.Should().Be(2);
-            service.Biomass.Should().HaveCount(3); // nGroups + 1 for 1-based EwECore indexing
-            stockRecruitment.VerifySet(sr => sr.Data = service.MSEQuotaData, Times.Once);
-            quotaCalculator.VerifySet(qc => qc.Data = service.MSEQuotaData, Times.Once);
-        }
-
-        [Fact]
-        public async Task InitialiseSimulation_KeepsFirstGroupIndexForDuplicateSpecies()
-        {
-            // Arrange
-            var service = CreateService();
+            var (service, _, _) = CreateServiceWithMocks();
             var contract = CreateContract();
-            contract.Items!.Species!.Add(new Species { SpeciesCode = "PIL", LifeStage = "" });
 
             // Act
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, contract);
 
             // Assert
-            service.SpeciesGroupMap.TryGetGroupIndex("PIL", "", out int iGroup).Should().BeTrue();
-            iGroup.Should().Be(1);
+            service.m_SimulationId.Should().Be("sim-1");
+            service.m_ScenarioName.Should().Be(ScenarioName);
+            service.m_SurimiContract.Should().BeSameAs(contract);
+        }
+
+        [Fact]
+        public async Task CreateRegulations_SetsUpQuotaData()
+        {
+            // Arrange
+            var (service, stockRecruitment, quotaCalculator) = CreateServiceWithMocks();
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+
+            // Act
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
+
+            // Assert
+            service.m_MSEQuotaData.Should().NotBeNull();
+            service.m_MSEQuotaData!.nGroups.Should().Be(2);
+            service.m_MSEQuotaData.nFleets.Should().Be(2);
+            service.m_Biomass.Should().HaveCount(3); // nGroups + 1 for 1-based EwECore indexing
+            stockRecruitment.VerifySet(sr => sr.Data = service.m_MSEQuotaData, Times.Once);
+            quotaCalculator.VerifySet(qc => qc.Data = service.m_MSEQuotaData, Times.Once);
+        }
+
+        [Fact]
+        public async Task CreateRegulations_ThrowsOnDuplicateSpecies()
+        {
+            // Arrange
+            var service = CreateService();
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            var summary = CreateRegulationSummary();
+            summary.TargetFishingMortalities!.Add(new TargetFishingMortality
+            {
+                Species = new Species { SpeciesCode = "PIL", LifeStage = "" },
+                BiomassLimit = 1.0,
+                BiomassBase = 2.0,
+                FMax = 0.05
+            });
+
+            // Act & Assert
+            var act = () => service.CreateRegulationsAsync(summary);
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Duplicate species*");
         }
 
         [Fact]
@@ -263,62 +337,51 @@ namespace SURIMI_fisheries_authority.Tests
             await service.UpdateBiomassAsync(grids);
 
             // Assert
-            service.Biomass[1].Should().Be(17.0f);
-            service.Biomass[2].Should().Be(3.0f);
+            service.m_Biomass[1].Should().Be(17.0f);
+            service.m_Biomass[2].Should().Be(3.0f);
         }
 
         [Fact]
-        public async Task UpdateBiomass_SkipsUnmappedSpeciesWithoutThrowing()
+        public async Task UpdateBiomass_ThrowsWhenSpeciesUnmapped()
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
             var grids = new List<BiomassGrid>
             {
-                CreateBiomassGrid("XXX", 10.0),
-                CreateBiomassGrid("PIL", 4.0)
+                CreateBiomassGrid("XXX", 10.0)
             };
 
-            // Act
-            await service.UpdateBiomassAsync(grids);
-
-            // Assert
-            service.Biomass[1].Should().Be(4.0f);
-            service.Biomass[2].Should().Be(0.0f);
+            // Act & Assert
+            var act = () => service.UpdateBiomassAsync(grids);
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*No group found*");
         }
 
         [Fact]
         public async Task CreateRegulations_AppliesTargetFishingMortalities()
         {
             // Arrange
-            var service = await CreateInitialisedServiceAsync();
-            var summary = new RegulationDefinitionsSummary
-            {
-                TargetFishingMortalities =
-                [
-                    new TargetFishingMortality
-                    {
-                        Species = new Species { SpeciesCode = "PIL", LifeStage = "" },
-                        BiomassLimit = 1.0,
-                        BiomassBase = 2.0,
-                        FMax = 0.05
-                    }
-                ]
-            };
+            var service = CreateService();
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            var summary = CreateRegulationSummary();
 
             // Act
             await service.CreateRegulationsAsync(summary);
 
             // Assert
-            service.MSEQuotaData!.Blim[1].Should().Be(1.0f);
-            service.MSEQuotaData.Bbase[1].Should().Be(2.0f);
-            service.MSEQuotaData.Fopt[1].Should().Be(0.05f);
+            service.m_MSEQuotaData!.Blim[1].Should().Be(1.0f);
+            service.m_MSEQuotaData.Bbase[1].Should().Be(2.0f);
+            service.m_MSEQuotaData.Fopt[1].Should().Be(0.05f);
+            service.m_MSEQuotaData.Blim[2].Should().Be(3.0f);
+            service.m_MSEQuotaData.Bbase[2].Should().Be(4.0f);
+            service.m_MSEQuotaData.Fopt[2].Should().Be(0.1f);
         }
 
         [Fact]
-        public async Task CreateRegulations_SkipsUnmappedSpeciesWithoutThrowing()
+        public async Task CreateRegulations_ThrowsWhenRecruitmentConfigMissing()
         {
             // Arrange
-            var service = await CreateInitialisedServiceAsync();
+            var service = CreateService();
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
             var summary = new RegulationDefinitionsSummary
             {
                 TargetFishingMortalities =
@@ -333,11 +396,9 @@ namespace SURIMI_fisheries_authority.Tests
                 ]
             };
 
-            // Act
-            await service.CreateRegulationsAsync(summary);
-
-            // Assert
-            service.MSEQuotaData!.Blim.Should().OnlyContain(v => v == 0.0f);
+            // Act & Assert
+            var act = () => service.CreateRegulationsAsync(summary);
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*No recruitment configuration found*");
         }
 
         [Fact]
@@ -363,6 +424,7 @@ namespace SURIMI_fisheries_authority.Tests
                 .Setup(qc => qc.DoAssessment(It.IsAny<float[]>(), It.IsAny<int>()))
                 .Callback<float[], int>((b, year) => { assessedBiomass = (float[])b.Clone(); assessedYear = year; });
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
             await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
 
             // Act
@@ -386,7 +448,7 @@ namespace SURIMI_fisheries_authority.Tests
             await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
 
             // Assert
-            service.Biomass.Should().OnlyContain(v => v == 0.0f);
+            service.m_Biomass.Should().OnlyContain(v => v == 0.0f);
         }
 
         [Fact]
@@ -408,7 +470,8 @@ namespace SURIMI_fisheries_authority.Tests
                 NullLogger<QuotaCalculationService>.Instance,
                 stockRecruitment.Object,
                 quotaCalculator.Object,
-                new QuotaShareLoader(CreateQuotaShareBlobStore(csvContent), NullLogger<QuotaShareLoader>.Instance));
+                new QuotaShareLoader(CreateQuotaShareBlobStore(csvContent), NullLogger<QuotaShareLoader>.Instance),
+                new RecruitmentLoader(CreateMatchingRecruitmentBlobStore(), NullLogger<RecruitmentLoader>.Instance));
         }
 
         [Fact]
@@ -424,8 +487,10 @@ namespace SURIMI_fisheries_authority.Tests
                 quotaCalculator.Object,
                 new QuotaShareLoader(CreateQuotaShareBlobStore(
                     "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
-                    "PIL;;0,75;0,25;1\n"), NullLogger<QuotaShareLoader>.Instance));
+                    "PIL;;0,75;0,25;1\n"), NullLogger<QuotaShareLoader>.Instance),
+                new RecruitmentLoader(CreateMatchingRecruitmentBlobStore(), NullLogger<RecruitmentLoader>.Instance));
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
 
             // Act
             var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
@@ -439,7 +504,7 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
-        public async Task InitialiseSimulation_ThrowsWhenQuotaShareSpeciesNotInContract()
+        public async Task CreateRegulations_ThrowsWhenQuotaShareSpeciesNotInContract()
         {
             // Arrange: CSV contains species XXX that is not present in the contract
             var service = CreateServiceWithQuotaShareCsv(
@@ -447,36 +512,72 @@ namespace SURIMI_fisheries_authority.Tests
                 "PIL;;0,75;0,25;1\n" +
                 "KHE;;0,5;0,5;1\n" +
                 "XXX;;1;;1\n");
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
 
             // Act & Assert
-            var act = () => service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            var act = () => service.CreateRegulationsAsync(CreateRegulationSummary());
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*XXX*not in contract*");
         }
 
         [Fact]
-        public async Task InitialiseSimulation_ThrowsWhenQuotaShareFleetNotInContract()
+        public async Task CreateRegulations_ThrowsWhenQuotaShareFleetNotInContract()
         {
             // Arrange: CSV contains fleet (TM, FRA) that is not present in the contract
             var service = CreateServiceWithQuotaShareCsv(
                 "species_code;life_stage;ART,ESP;OTB,ESP;TM,FRA;Sum\n" +
                 "PIL;;0,75;0,25;;1\n" +
                 "KHE;;0,5;0,5;;1\n");
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
 
             // Act & Assert
-            var act = () => service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            var act = () => service.CreateRegulationsAsync(CreateRegulationSummary());
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*TM*not in contract*");
         }
 
         [Fact]
-        public async Task InitialiseSimulation_LoadsQuotaSharesOnExactMatch()
+        public async Task CreateRegulations_LoadsQuotaSharesOnExactMatch()
         {
             // Arrange & Act
             var service = await CreateInitialisedServiceAsync();
 
             // Assert
-            service.QuotaShares.Should().NotBeNull();
-            service.QuotaShares!.SpeciesCount.Should().Be(2);
-            service.QuotaShares.Fleets.Should().HaveCount(2);
+            service.m_QuotaShares.Should().NotBeNull();
+            service.m_QuotaShares!.SpeciesCount.Should().Be(2);
+            service.m_QuotaShares.Fleets.Should().HaveCount(2);
+        }
+
+        [Fact]
+        public async Task CreateRegulations_AssignsRecruitmentIntoMSEQuotaData()
+        {
+            // Arrange
+            var service = CreateService();
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+
+            // Act
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
+
+            // Assert
+            // 1-based EwECore indexing: PIL -> group 1, KHE -> group 2
+            service.m_MSEQuotaData!.RstockRatio[1].Should().Be(0.893f);
+            service.m_MSEQuotaData.cvRec[1].Should().Be(0.8f);
+            service.m_MSEQuotaData.RstockRatio[2].Should().Be(0.7134952f);
+            service.m_MSEQuotaData.cvRec[2].Should().Be(0.9f);
+        }
+
+        [Fact]
+        public async Task CreateRegulations_ThrowsWhenRecruitmentSpeciesNotInContract()
+        {
+            // Arrange: recruitment file contains species XXX that is not present in the contract
+            var service = CreateServiceWithMocks(CreateRecruitmentBlobStore(
+                "species_code;life_stage;RstockRatio;RHalfB0Ratio;cvRec\n" +
+                "PIL;;0,893;0,2;0,8\n" +
+                "KHE;;0,7134952;0,25;0,9\n" +
+                "XXX;;0,5;0,2;0,8\n")).Service;
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+
+            // Act & Assert
+            var act = () => service.CreateRegulationsAsync(CreateRegulationSummary());
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*XXX*recruitment file*not in contract*");
         }
 
         [Fact]
@@ -486,6 +587,7 @@ namespace SURIMI_fisheries_authority.Tests
             var (service, _, quotaCalculator) = CreateServiceWithMocks();
             quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
 
             // Act
             var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
@@ -505,6 +607,83 @@ namespace SURIMI_fisheries_authority.Tests
 
             var kheOtb = regulations.TotalAllowableCatches!.Single(tac => tac.Species!.SpeciesCode == "KHE" && tac.FleetSegment!.GearCode == "OTB");
             kheOtb.Catch.Should().Be(20.0);
+        }
+
+        [Fact]
+        public async Task CreateRegulations_InitialisesCVbiomEstTo0Point2()
+        {
+            // Arrange & Act
+            var service = await CreateInitialisedServiceAsync();
+
+            // Assert
+            service.m_MSEQuotaData!.CVbiomEst.Should().OnlyContain(v => v == 0.2f);
+        }
+
+        [Fact]
+        public async Task UpdateBiomass_SeedsBestimateBhalfTAndRmaxOnFirstCall()
+        {
+            // Arrange
+            var service = await CreateInitialisedServiceAsync();
+
+            // Act
+            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
+            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 5.0)]);
+
+            // Assert
+            // Recruitment CSV: PIL RstockRatio = 0.893, RHalfB0Ratio = 0.2; seeded values are based on the first biomass only
+            service.m_Biomass[1].Should().Be(15.0f);
+            service.m_MSEQuotaData!.Bestimate[1].Should().Be(10.0f);
+            service.m_MSEQuotaData.BhalfT[1].Should().Be(0.2f * 10.0f);
+            service.m_MSEQuotaData.Rmax[1].Should().Be(0.893f * 10.0f * (0.2f + 1.0f));
+        }
+
+        [Fact]
+        public async Task UpdateCatchDisposition_CalculatesFish1OnFirstCall()
+        {
+            // Arrange
+            var service = await CreateInitialisedServiceAsync();
+            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
+
+            // Act
+            await service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, new CatchDispositionSummary
+            {
+                DispositionGrids = [CreateGrid("PIL", "ART", (4.0, 0.0, 0.0))]
+            });
+            await service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, new CatchDispositionSummary
+            {
+                DispositionGrids = [CreateGrid("PIL", "ART", (6.0, 0.0, 0.0))]
+            });
+
+            // Assert
+            // Fish1 = landings / biomass from the first call only; subsequent calls do not recompute it
+            service.m_MSEQuotaData!.Fish1[1].Should().Be(0.4f);
+            service.m_MSEQuotaData.CatchYearGroup[1].Should().Be(10.0f);
+        }
+
+        [Fact]
+        public async Task UpdateCatchDisposition_ThrowsWhenBiomassNotSetBeforeCatch()
+        {
+            // Arrange
+            var service = await CreateInitialisedServiceAsync();
+            var summary = new CatchDispositionSummary
+            {
+                DispositionGrids = [CreateGrid("PIL", "ART", (4.0, 0.0, 0.0))]
+            };
+
+            // Act & Assert
+            var act = () => service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, summary);
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Cannot calculate Fish1 factor*");
+        }
+
+        [Fact]
+        public async Task UpdateBiomass_ThrowsWhenNotInitialised()
+        {
+            // Arrange
+            var service = CreateService();
+
+            // Act & Assert
+            var act = () => service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
+            await act.Should().ThrowAsync<InvalidOperationException>();
         }
     }
 }

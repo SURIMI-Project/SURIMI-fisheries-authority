@@ -157,7 +157,8 @@ namespace SURIMI_fisheries_authority.Services
                             {
                                 Species = new Species
                                 {
-                                    SpeciesCode = tac.Species.SpeciesCode
+                                    SpeciesCode = tac.Species.SpeciesCode,
+                                    LifeStage = tac.Species.LifeStage
                                 },
                                 FleetSegment = new FleetSegment
                                 {
