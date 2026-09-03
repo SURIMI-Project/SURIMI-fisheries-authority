@@ -45,6 +45,7 @@ namespace SURIMI_fisheries_authority
             builder.Services.AddSingleton<ProtocolVersionService>();
             builder.Services.AddSingleton<SimulationScopeManager>();
             builder.Services.AddSingleton<QuotaShareLoader>();
+            builder.Services.AddSingleton<RecruitmentLoader>();
             builder.Services.AddScoped<IRandomService, cRandomService>();
             builder.Services.AddScoped<IMSEStockRecruitment, cMSEStockRecruitment>();
             builder.Services.AddScoped<IMSEQuotaCalculator, cMSEQuotaCalculator>();

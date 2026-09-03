@@ -24,6 +24,7 @@ namespace SURIMI_fisheries_authority.Models
         public float[] Fish1 { get; set; }
         public float[] GstockPred { get; set; }
         public float[] RstockRatio { get; set; }
+        public float[] RHalfB0Ratio { get; set; }
         public float[] KalmanGain { get; set; }
         public float[] BhalfT { get; set; }
         public float[] Rmax { get; set; }
@@ -54,6 +55,7 @@ namespace SURIMI_fisheries_authority.Models
             Fish1 = new float[nGroups + 1];
             GstockPred = new float[nGroups + 1];
             RstockRatio = new float[nGroups + 1];
+            RHalfB0Ratio = new float[nGroups + 1];
             KalmanGain = new float[nGroups + 1];
             BhalfT = new float[nGroups + 1];
             Rmax = new float[nGroups + 1];

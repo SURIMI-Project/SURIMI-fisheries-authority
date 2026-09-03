@@ -10,56 +10,227 @@ namespace SURIMI_fisheries_authority.Services
         private readonly IMSEStockRecruitment m_stockRecruitment;
         private readonly IMSEQuotaCalculator m_quotaCalculator;
         private readonly QuotaShareLoader m_quotaShareLoader;
+        private readonly RecruitmentLoader m_recruitmentLoader;
 
 
-        public string SimulationId { get; private set; } = string.Empty;
-        public SurimiContract? SurimiContract { get; private set; }
-        public IMSEQuotaData? MSEQuotaData { get; private set; }
-        public SpeciesGroupMap SpeciesGroupMap { get; private set; } = new SpeciesGroupMap();
-        public FleetQuotaShareMap? QuotaShares { get; private set; }
-        public float[] Biomass { get; private set; } = Array.Empty<float>();
+        public string m_SimulationId { get; private set; } = string.Empty;
+        public SurimiContract? m_SurimiContract { get; private set; }
+        public string m_ScenarioName { get; private set; } = string.Empty;
+        public IMSEQuotaData? m_MSEQuotaData { get; private set; }
+        public SpeciesGroupMap m_QuotaSpeciesGroupMap { get; private set; } = new SpeciesGroupMap();
+        public FleetQuotaShareMap? m_QuotaShares { get; private set; }
+        public StockRecruitmentMap? m_StockRecruitment { get; private set; }
+        public float[] m_Biomass { get; private set; }
+        private bool[] m_IsBiomassAlreadyAssigned;
+        private bool[] m_IsCatchYearGroupAlreadyAssigned;
 
-        public QuotaCalculationService(ILogger<QuotaCalculationService> logger, IMSEStockRecruitment stockRecruitment, IMSEQuotaCalculator quotaCalculator, QuotaShareLoader quotaShareLoader)
+        public QuotaCalculationService(ILogger<QuotaCalculationService> logger, IMSEStockRecruitment stockRecruitment, IMSEQuotaCalculator quotaCalculator, QuotaShareLoader quotaShareLoader, RecruitmentLoader recruitmentLoader)
         {
             m_logger = logger;
             m_stockRecruitment = stockRecruitment;
             m_quotaCalculator = quotaCalculator;
             m_quotaShareLoader = quotaShareLoader;
+            m_recruitmentLoader = recruitmentLoader;
         }
 
         public async Task InitialiseSimulationAsync(string simulationId, string scenarioName, SurimiContract surimiContract)
         {
-            IMSEQuotaData mSEQuotaData = new MSEQuotaData(
-                surimiContract.Items.Species.Count,
-                surimiContract.Items.FleetSegments.Count 
+
+
+            m_SimulationId = simulationId;
+            m_SurimiContract = surimiContract;
+            m_ScenarioName = scenarioName;
+            // EwECore VB arrays are 1-based with inclusive sizing. To keep the same indexing, we allocate nGroups + 1 elements and ignore index 0.
+            
+            m_logger.LogInformation($"Initialized simulation {simulationId} ");
+        }
+
+        public async Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary)
+        {
+            m_MSEQuotaData = new MSEQuotaData(
+                regulationDefinitionsSummary.TargetFishingMortalities.Count,
+                m_SurimiContract.Items.FleetSegments.Count
             );
+            Array.Fill(m_MSEQuotaData.CVbiomEst, 0.2f); // Initialise the Coefficient of Variation for biomass estimates to 0.2 for all species
+            m_stockRecruitment.Data = m_MSEQuotaData;
+            m_quotaCalculator.Data = m_MSEQuotaData;
 
-            m_stockRecruitment.Data = mSEQuotaData;
-            m_quotaCalculator.Data = mSEQuotaData;
+            m_QuotaShares = await m_quotaShareLoader.LoadAsync(m_ScenarioName);
+            ValidateQuotaSharesMatchContract(m_QuotaShares, m_SurimiContract, m_ScenarioName);
 
-            var speciesGroupMap = new SpeciesGroupMap();
-            for (int iGroup = 0; iGroup < surimiContract.Items.Species.Count; iGroup++)
+            var recruitmentMap = await m_recruitmentLoader.LoadAsync(m_ScenarioName);
+            ValidateRecruitmentMatchContract(recruitmentMap, m_SurimiContract, m_ScenarioName);
+
+            foreach (var tfm in regulationDefinitionsSummary.TargetFishingMortalities ?? Enumerable.Empty<TargetFishingMortality>())
             {
-                var species = surimiContract.Items.Species[iGroup];
                 // EwECore uses 1-based group indices, so store iGroup + 1
-                if (!speciesGroupMap.Add(species.SpeciesCode, species.LifeStage, iGroup + 1))
+                if (!m_QuotaSpeciesGroupMap.Add(tfm.Species.SpeciesCode, tfm.Species.LifeStage, out var iGroup))
                 {
-                    m_logger.LogWarning($"Duplicate species ({species.SpeciesCode}, {species.LifeStage}) in contract for simulation {simulationId}; keeping first group index");
+                    throw new InvalidOperationException($"Duplicate species ({tfm.Species.SpeciesCode}, {tfm.Species.LifeStage}) in RegulationDefinitionsSummary for simulation {m_SimulationId}");
+                }
+
+                if (recruitmentMap.TryGetConfiguration(tfm.Species.SpeciesCode, tfm.Species.LifeStage, out var recruitmentConfig))
+                {
+                    m_MSEQuotaData.RstockRatio[iGroup] = recruitmentConfig.RstockRatio;
+                    m_MSEQuotaData.RHalfB0Ratio[iGroup] = recruitmentConfig.RHalfB0Ratio;
+                    m_MSEQuotaData.cvRec[iGroup] = recruitmentConfig.cvRec;
+                }
+                else
+                {
+                    throw new InvalidOperationException($"No recruitment configuration found for species ({tfm.Species.SpeciesCode}, {tfm.Species.LifeStage}) in simulation {m_SimulationId}");
+                }
+
+                m_MSEQuotaData.Blim[iGroup] = (float)tfm.BiomassLimit;
+                m_MSEQuotaData.Bbase[iGroup] = (float)tfm.BiomassBase;
+                m_MSEQuotaData.Fopt[iGroup] = (float)tfm.FMax;
+            }
+
+            m_Biomass = new float[m_MSEQuotaData.nGroups + 1];
+            m_IsBiomassAlreadyAssigned = new bool[m_MSEQuotaData.nGroups + 1];
+            m_IsCatchYearGroupAlreadyAssigned = new bool[m_MSEQuotaData.nGroups + 1];
+        }
+
+        public Task UpdateBiomassAsync(List<BiomassGrid> biomassGrids)
+        {
+            var mseQuotaData = m_MSEQuotaData ?? throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
+            foreach (var grid in biomassGrids)
+            {
+                if (!m_QuotaSpeciesGroupMap.TryGetGroupIndex(grid.Species.SpeciesCode, grid.Species.LifeStage, out int iGroup))
+                {
+                    throw new InvalidOperationException($"No group found for species ({grid.Species.SpeciesCode}, {grid.Species.LifeStage}) in simulation {m_SimulationId}; cannot update biomass");
+                }
+
+                m_Biomass[iGroup] += (float)grid.BiomassCells.Sum(cell => cell.Biomass);
+
+                // only the first time Biomass is assigned, we also fill the Bestimate array, which is used in the EwECore MSE model to calculate the fishing mortality rate
+                if (!m_IsBiomassAlreadyAssigned[iGroup])
+                {
+                    mseQuotaData.Bestimate[iGroup] = m_Biomass[iGroup];
+                    var RStock0 = mseQuotaData.RstockRatio[iGroup] * m_Biomass[iGroup];
+                    mseQuotaData.BhalfT[iGroup] = mseQuotaData.RHalfB0Ratio[iGroup] * m_Biomass[iGroup];
+                    mseQuotaData.Rmax[iGroup] = RStock0 * (mseQuotaData.RHalfB0Ratio[iGroup] + 1);
+                }
+                 m_IsBiomassAlreadyAssigned[iGroup] = true;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task UpdateCatchDispositionAsync(DateTime startDateTime, DateTime endDateTime, CatchDispositionSummary catchDispositionSummary)
+        {
+            var mseQuotaData = m_MSEQuotaData ?? throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
+
+            foreach (var grid in catchDispositionSummary.DispositionGrids ?? Enumerable.Empty<DispositionGrid>())
+            {
+                if (!m_QuotaSpeciesGroupMap.TryGetGroupIndex(grid.Species.SpeciesCode, grid.Species.LifeStage, out int iGroup))
+                {
+                    throw new InvalidOperationException($"No group found for species ({grid.Species.SpeciesCode}, {grid.Species.LifeStage}) in simulation {m_SimulationId}; cannot update catch disposition");
+                }
+
+                var landings = (float)grid.DispositionCells.Sum(cell => cell.GrossCatchBiomass - cell.LiveDiscardsBiomass);
+
+                // if this is the first catch disposition, calulate the Fish1 factor for the species group, which is used in the EwECore MSE model to calculate the fishing mortality rate
+                if (!m_IsCatchYearGroupAlreadyAssigned[iGroup])
+                {
+                    if(!m_IsBiomassAlreadyAssigned[iGroup])
+                    {
+                        throw new InvalidOperationException($"Biomass for species group {iGroup} is not set before catch disposition update in simulation {m_SimulationId}. Cannot calculate Fish1 factor.");
+                    }
+                    mseQuotaData.Fish1[iGroup] = landings / m_Biomass[iGroup];
+                }
+                // Aggregate the biomass removed from the stock: gross catch minus live discards (live discards survive)
+                mseQuotaData.CatchYearGroup[iGroup] += landings;
+                m_IsCatchYearGroupAlreadyAssigned[iGroup] = true;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// This method is called (By the controller) when the new year starts. It assumes the Biomass, catches etc from last year have been updated and it will calculate the new regulations for the next year. 
+        /// </summary>
+        /// <param name="startDateTime"></param>
+        /// <param name="endDateTime"></param>
+        /// <returns></returns>
+        public Task<RegulationsSummary> GetRegulationsAsync(DateTime startDateTime, DateTime endDateTime)
+        {
+            m_logger.LogInformation($"Calculating regulations for simulation {m_SimulationId} ({startDateTime} - {endDateTime})");
+
+            if (m_MSEQuotaData is null || m_QuotaShares is null || m_SurimiContract is null || m_Biomass.Length <= m_MSEQuotaData.nLiving)
+            {
+                throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
+            }
+
+            m_quotaCalculator.DoAssessment(m_Biomass, startDateTime.Year);
+
+            var quotas = m_quotaCalculator.UpdateQuotas();
+
+            Array.Clear(m_Biomass);
+            Array.Clear(m_MSEQuotaData.CatchYearGroup);
+
+            // Split each species quota across the fleets according to the scenario quota shares
+            var totalAllowableCatches = new List<TotalAllowableCatch>();
+            foreach (var species in m_SurimiContract.Items.Species)
+            {
+                if (!m_QuotaSpeciesGroupMap.TryGetGroupIndex(species.SpeciesCode, species.LifeStage, out int iGroup))
+                {
+                    // This species was not included in the quota calculation (e.g., because it had no quota defined)
+                    continue;
+                }
+
+                if (!m_QuotaShares.TryGetShares(species.SpeciesCode, species.LifeStage, out var shares))
+                {
+                    throw new InvalidOperationException($"No quota shares configured for species ({species.SpeciesCode}, {species.LifeStage}) while a quota is defined in simulation {m_SimulationId}");
+                }
+
+                foreach (var (fleet, share) in shares)
+                {
+                    totalAllowableCatches.Add(new TotalAllowableCatch
+                    {
+                        Species = new Species()
+                        {
+                            SpeciesCode = species.SpeciesCode,
+                            LifeStage = species.LifeStage
+                        },
+                        FleetSegment = new FleetSegment()
+                        {
+                            GearCode = fleet.GearCode,
+                            CountryCode = fleet.CountryCode
+                        },
+                        Catch = quotas[iGroup] * share
+                    });
                 }
             }
 
-            var quotaShares = await m_quotaShareLoader.LoadAsync(scenarioName);
-            ValidateQuotaSharesMatchContract(quotaShares, surimiContract, scenarioName);
+            var regulationsSummary = new RegulationsSummary
+            {
+                TotalAllowableCatches = totalAllowableCatches
+            };
 
-            SimulationId = simulationId;
-            SurimiContract = surimiContract;
-            MSEQuotaData = mSEQuotaData;
-            SpeciesGroupMap = speciesGroupMap;
-            QuotaShares = quotaShares;
-            // EwECore VB arrays are 1-based with inclusive sizing. To keep the same indexing, we allocate nGroups + 1 elements and ignore index 0.
-            Biomass = new float[mSEQuotaData.nGroups + 1];
+            return Task.FromResult(regulationsSummary);
+        }
 
-            m_logger.LogInformation($"Initialized simulation {simulationId} with quota shares for {quotaShares.SpeciesCount} species and {quotaShares.Fleets.Count} fleets from scenario {scenarioName}");
+        public Task UpdateFishingActivityAsync(DateTime startDateTime, DateTime endDateTime, FishingActivitySummary fishingActivitySummary)
+        {
+            m_logger.LogInformation($"Received {fishingActivitySummary.FishingActivities?.Count ?? 0} fishing activities for simulation {m_SimulationId} ({startDateTime} - {endDateTime})");
+            return Task.CompletedTask;
+        }
+
+        public Task FinaliseSimulationAsync()
+        {
+            m_logger.LogInformation($"Finalised simulation {m_SimulationId}");
+            return Task.CompletedTask;
+        }
+
+        public Task CancelSimulationAsync()
+        {
+            m_logger.LogInformation($"Cancelled simulation {m_SimulationId}");
+            return Task.CompletedTask;
+        }
+        public Task SimulateStepAsync()
+        {
+            m_logger.LogInformation($"Simulated step for simulation {m_SimulationId}");
+            return Task.CompletedTask;
         }
 
         private static void ValidateQuotaSharesMatchContract(FleetQuotaShareMap quotaShares, SurimiContract surimiContract, string scenarioName)
@@ -84,174 +255,20 @@ namespace SURIMI_fisheries_authority.Services
             }
         }
 
-        public Task SimulateStepAsync()
+        private static void ValidateRecruitmentMatchContract(StockRecruitmentMap recruitment, SurimiContract surimiContract, string scenarioName)
         {
-            m_logger.LogInformation($"Simulated step for simulation {SimulationId}");
-            return Task.CompletedTask;
-        }
+            var contractSpecies = surimiContract.Items.Species
+                .Select(s => new SpeciesKey(s.SpeciesCode, s.LifeStage))
+                .ToHashSet();
+            var csvSpecies = recruitment.SpeciesKeys.ToHashSet();
 
-        public Task FinaliseSimulationAsync()
-        {
-            m_logger.LogInformation($"Finalised simulation {SimulationId}");
-            return Task.CompletedTask;
-        }
+            var problems = new List<string>();
+            problems.AddRange(csvSpecies.Except(contractSpecies).Select(s => $"species ({s.SpeciesCode}, {s.LifeStage}) in recruitment file but not in contract"));
 
-        public Task CancelSimulationAsync()
-        {
-            m_logger.LogInformation($"Cancelled simulation {SimulationId}");
-            return Task.CompletedTask;
-        }
-
-        public Task UpdateBiomassAsync(List<BiomassGrid> biomassGrids)
-        {
-            int applied = 0, skipped = 0;
-            foreach (var grid in biomassGrids)
+            if (problems.Count > 0)
             {
-                if (!SpeciesGroupMap.TryGetGroupIndex(grid.Species.SpeciesCode, grid.Species.LifeStage, out int iGroup))
-                {
-                    m_logger.LogWarning($"No group found for species ({grid.Species.SpeciesCode}, {grid.Species.LifeStage}) in simulation {SimulationId}; skipping biomass grid");
-                    skipped++;
-                    continue;
-                }
-
-                Biomass[iGroup] += (float)grid.BiomassCells.Sum(cell => cell.Biomass);
-                applied++;
+                throw new InvalidOperationException($"Recruitment file for scenario {scenarioName} does not match the simulation contract: {string.Join("; ", problems)}");
             }
-
-            m_logger.LogInformation($"Aggregated {applied} biomass grids ({skipped} skipped) for simulation {SimulationId}");
-            return Task.CompletedTask;
-        }
-
-        public Task UpdateCatchDispositionAsync(DateTime startDateTime, DateTime endDateTime, CatchDispositionSummary catchDispositionSummary)
-        {
-            var mseQuotaData = MSEQuotaData ?? throw new InvalidOperationException($"Simulation with Id {SimulationId} is not initialised");
-
-            int applied = 0, skipped = 0;
-            foreach (var grid in catchDispositionSummary.DispositionGrids ?? Enumerable.Empty<DispositionGrid>())
-            {
-                if (!SpeciesGroupMap.TryGetGroupIndex(grid.Species.SpeciesCode, grid.Species.LifeStage, out int iGroup))
-                {
-                    m_logger.LogWarning($"No group found for species ({grid.Species.SpeciesCode}, {grid.Species.LifeStage}) in simulation {SimulationId}; skipping disposition grid");
-                    skipped++;
-                    continue;
-                }
-
-                // Aggregate the biomass removed from the stock: gross catch minus live discards (live discards survive)
-                mseQuotaData.CatchYearGroup[iGroup] += (float)grid.DispositionCells.Sum(cell => cell.GrossCatchBiomass - cell.LiveDiscardsBiomass);
-                applied++;
-            }
-
-            m_logger.LogInformation($"Aggregated {applied} disposition grids ({skipped} skipped) for simulation {SimulationId} ({startDateTime} - {endDateTime})");
-            return Task.CompletedTask;
-        }
-
-        public Task UpdateFishingActivityAsync(DateTime startDateTime, DateTime endDateTime, FishingActivitySummary fishingActivitySummary)
-        {
-            m_logger.LogInformation($"Received {fishingActivitySummary.FishingActivities?.Count ?? 0} fishing activities for simulation {SimulationId} ({startDateTime} - {endDateTime})");
-            return Task.CompletedTask;
-        }
-
-        public Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary)
-        {
-            var mseQuotaData = MSEQuotaData ?? throw new Exception($"Simulation with Id {SimulationId} is not initialised");
-
-            int applied = 0, skipped = 0;
-            foreach (var tfm in regulationDefinitionsSummary.TargetFishingMortalities ?? Enumerable.Empty<TargetFishingMortality>())
-            {
-                if (!SpeciesGroupMap.TryGetGroupIndex(tfm.Species.SpeciesCode, tfm.Species.LifeStage, out int iGroup))
-                {
-                    m_logger.LogWarning($"No group found for species ({tfm.Species.SpeciesCode}, {tfm.Species.LifeStage}) in simulation {SimulationId}; skipping regulation");
-                    skipped++;
-                    continue;
-                }
-
-                mseQuotaData.Blim[iGroup] = (float)tfm.BiomassLimit;
-                mseQuotaData.Bbase[iGroup] = (float)tfm.BiomassBase;
-                mseQuotaData.Fopt[iGroup] = (float)tfm.FMax;
-                applied++;
-            }
-
-            m_logger.LogInformation($"Applied {applied} target fishing mortalities ({skipped} skipped) for simulation {SimulationId}");
-            return Task.CompletedTask;
-        }
-
-        /// <summary>
-        /// This method is called (By the controller) when the new year starts. It assumes the Biomass, catches etc from last year have been updated and it will calculate the new regulations for the next year. 
-        /// </summary>
-        /// <param name="startDateTime"></param>
-        /// <param name="endDateTime"></param>
-        /// <returns></returns>
-        public Task<RegulationsSummary> GetRegulationsAsync(DateTime startDateTime, DateTime endDateTime)
-        {
-            m_logger.LogInformation($"Calculating regulations for simulation {SimulationId} ({startDateTime} - {endDateTime})");
-
-            if (MSEQuotaData is null || QuotaShares is null || SurimiContract is null || Biomass.Length <= MSEQuotaData.nLiving)
-            {
-                throw new InvalidOperationException($"Simulation with Id {SimulationId} is not initialised");
-            }
-
-            m_quotaCalculator.DoAssessment(Biomass, startDateTime.Year);
-
-            var quotas = m_quotaCalculator.UpdateQuotas();
-
-            Array.Clear(Biomass);
-            Array.Clear(MSEQuotaData.CatchYearGroup);
-
-            // Species without an entry in the quota share file get their quota divided equally among all fleets
-            var contractFleets = SurimiContract.Items.FleetSegments
-                .Select(f => new FleetKey(f.GearCode, f.CountryCode))
-                .Distinct()
-                .ToList();
-            var equalShares = contractFleets
-                .Select(fleet => (Fleet: fleet, Share: 1.0f / contractFleets.Count))
-                .ToList();
-
-            // Split each species quota across the fleets according to the scenario quota shares
-            int applied = 0, skipped = 0;
-            var totalAllowableCatches = new List<TotalAllowableCatch>();
-            foreach (var species in SurimiContract.Items.Species)
-            {
-                if (!SpeciesGroupMap.TryGetGroupIndex(species.SpeciesCode, species.LifeStage, out int iGroup))
-                {
-                    m_logger.LogWarning($"No group found for species ({species.SpeciesCode}, {species.LifeStage}) in simulation {SimulationId}; skipping quota shares");
-                    skipped++;
-                    continue;
-                }
-
-                if (!QuotaShares.TryGetShares(species.SpeciesCode, species.LifeStage, out var shares))
-                {
-                    m_logger.LogInformation($"No quota shares configured for species ({species.SpeciesCode}, {species.LifeStage}) in simulation {SimulationId}; dividing quota equally among {contractFleets.Count} fleets");
-                    shares = equalShares;
-                }
-
-                foreach (var (fleet, share) in shares)
-                {
-                    totalAllowableCatches.Add(new TotalAllowableCatch
-                    {
-                        Species = new Species()
-                        {
-                            SpeciesCode = species.SpeciesCode,
-                            LifeStage = species.LifeStage
-                        },
-                        FleetSegment = new FleetSegment()
-                        {
-                            GearCode = fleet.GearCode,
-                            CountryCode = fleet.CountryCode
-                        },
-                        Catch = quotas[iGroup] * share
-                    });
-                }
-                applied++;
-            }
-
-            var regulationsSummary = new RegulationsSummary
-            {
-                TotalAllowableCatches = totalAllowableCatches
-            };
-
-            m_logger.LogInformation($"Calculated {totalAllowableCatches.Count} total allowable catches for {applied} species ({skipped} skipped) in simulation {SimulationId}");
-
-            return Task.FromResult(regulationsSummary);
         }
     }
 }
