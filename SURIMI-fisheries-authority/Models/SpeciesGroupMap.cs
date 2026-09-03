@@ -30,5 +30,11 @@ namespace SURIMI_fisheries_authority.Models
 
         public bool TryGetGroupIndex(string speciesCode, string lifeStage, out int groupIndex)
             => m_groupIndices.TryGetValue(new SpeciesKey(speciesCode, lifeStage), out groupIndex);
+
+        /// <summary>
+        /// Enumerates all mapped species with their 1-based EwECore group index.
+        /// </summary>
+        public IEnumerable<(string SpeciesCode, string LifeStage, int GroupIndex)> Entries
+            => m_groupIndices.Select(kvp => (kvp.Key.SpeciesCode, kvp.Key.LifeStage, kvp.Value));
     }
 }

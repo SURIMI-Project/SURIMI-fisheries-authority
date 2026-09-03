@@ -466,6 +466,8 @@ namespace SURIMI_fisheries_authority.Tests
         {
             var stockRecruitment = new Mock<IMSEStockRecruitment>();
             var quotaCalculator = new Mock<IMSEQuotaCalculator>();
+            // nGroups + 1 elements for 1-based EwECore indexing
+            quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[3]);
             return new QuotaCalculationService(
                 NullLogger<QuotaCalculationService>.Instance,
                 stockRecruitment.Object,
@@ -475,36 +477,22 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
-        public async Task GetRegulations_DividesQuotaEquallyWhenSpeciesNotInShareFile()
+        public async Task GetRegulations_ThrowsWhenSpeciesNotInShareFile()
         {
-            // Arrange: CSV lacks species KHE, so its quota is divided equally among the contract fleets
-            var stockRecruitment = new Mock<IMSEStockRecruitment>();
-            var quotaCalculator = new Mock<IMSEQuotaCalculator>();
-            quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
-            var service = new QuotaCalculationService(
-                NullLogger<QuotaCalculationService>.Instance,
-                stockRecruitment.Object,
-                quotaCalculator.Object,
-                new QuotaShareLoader(CreateQuotaShareBlobStore(
-                    "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
-                    "PIL;;0,75;0,25;1\n"), NullLogger<QuotaShareLoader>.Instance),
-                new RecruitmentLoader(CreateMatchingRecruitmentBlobStore(), NullLogger<RecruitmentLoader>.Instance));
+            // Arrange: CSV lacks species KHE while a quota is defined for it
+            var service = CreateServiceWithQuotaShareCsv(
+                "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
+                "PIL;;0,75;0,25;1\n");
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
             await service.CreateRegulationsAsync(CreateRegulationSummary());
 
-            // Act
-            var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
-
-            // Assert
-            regulations.TotalAllowableCatches.Should().HaveCount(4);
-            var kheArt = regulations.TotalAllowableCatches!.Single(tac => tac.Species!.SpeciesCode == "KHE" && tac.FleetSegment!.GearCode == "ART");
-            kheArt.Catch.Should().Be(20.0);
-            var kheOtb = regulations.TotalAllowableCatches!.Single(tac => tac.Species!.SpeciesCode == "KHE" && tac.FleetSegment!.GearCode == "OTB");
-            kheOtb.Catch.Should().Be(20.0);
+            // Act & Assert
+            var act = () => service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*No quota shares configured*");
         }
 
         [Fact]
-        public async Task CreateRegulations_ThrowsWhenQuotaShareSpeciesNotInContract()
+        public async Task GetRegulations_ThrowsWhenQuotaShareSpeciesNotInContract()
         {
             // Arrange: CSV contains species XXX that is not present in the contract
             var service = CreateServiceWithQuotaShareCsv(
@@ -513,14 +501,15 @@ namespace SURIMI_fisheries_authority.Tests
                 "KHE;;0,5;0,5;1\n" +
                 "XXX;;1;;1\n");
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
 
             // Act & Assert
-            var act = () => service.CreateRegulationsAsync(CreateRegulationSummary());
+            var act = () => service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*XXX*not in contract*");
         }
 
         [Fact]
-        public async Task CreateRegulations_ThrowsWhenQuotaShareFleetNotInContract()
+        public async Task GetRegulations_ThrowsWhenQuotaShareFleetNotInContract()
         {
             // Arrange: CSV contains fleet (TM, FRA) that is not present in the contract
             var service = CreateServiceWithQuotaShareCsv(
@@ -528,17 +517,21 @@ namespace SURIMI_fisheries_authority.Tests
                 "PIL;;0,75;0,25;;1\n" +
                 "KHE;;0,5;0,5;;1\n");
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
 
             // Act & Assert
-            var act = () => service.CreateRegulationsAsync(CreateRegulationSummary());
+            var act = () => service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*TM*not in contract*");
         }
 
         [Fact]
-        public async Task CreateRegulations_LoadsQuotaSharesOnExactMatch()
+        public async Task GetRegulations_LoadsQuotaSharesOnExactMatch()
         {
-            // Arrange & Act
+            // Arrange
             var service = await CreateInitialisedServiceAsync();
+
+            // Act
+            await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
 
             // Assert
             service.m_QuotaShares.Should().NotBeNull();
@@ -607,6 +600,28 @@ namespace SURIMI_fisheries_authority.Tests
 
             var kheOtb = regulations.TotalAllowableCatches!.Single(tac => tac.Species!.SpeciesCode == "KHE" && tac.FleetSegment!.GearCode == "OTB");
             kheOtb.Catch.Should().Be(20.0);
+        }
+
+        [Fact]
+        public async Task GetRegulations_EmitsQuotaPerMappedSpeciesWithUppercasedCodes()
+        {
+            // Arrange: regulation summary uses lowercase codes; the species group map normalises them to uppercase
+            var (service, _, quotaCalculator) = CreateServiceWithMocks();
+            quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            var summary = CreateRegulationSummary();
+            foreach (var tfm in summary.TargetFishingMortalities!)
+            {
+                tfm.Species!.SpeciesCode = tfm.Species.SpeciesCode!.ToLowerInvariant();
+            }
+            await service.CreateRegulationsAsync(summary);
+
+            // Act
+            var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
+
+            // Assert
+            regulations.TotalAllowableCatches.Should().HaveCount(4);
+            regulations.TotalAllowableCatches!.Select(tac => tac.Species!.SpeciesCode).Distinct().Should().BeEquivalentTo("PIL", "KHE");
         }
 
         [Fact]
