@@ -55,9 +55,6 @@ namespace SURIMI_fisheries_authority.Services
             m_stockRecruitment.Data = m_MSEQuotaData;
             m_quotaCalculator.Data = m_MSEQuotaData;
 
-            m_QuotaShares = await m_quotaShareLoader.LoadAsync(m_ScenarioName);
-            ValidateQuotaSharesMatchContract(m_QuotaShares, m_SurimiContract, m_ScenarioName);
-
             var recruitmentMap = await m_recruitmentLoader.LoadAsync(m_ScenarioName);
             ValidateRecruitmentMatchContract(recruitmentMap, m_SurimiContract, m_ScenarioName);
 
@@ -152,14 +149,19 @@ namespace SURIMI_fisheries_authority.Services
         /// <param name="startDateTime"></param>
         /// <param name="endDateTime"></param>
         /// <returns></returns>
-        public Task<RegulationsSummary> GetRegulationsAsync(DateTime startDateTime, DateTime endDateTime)
+        public async Task<RegulationsSummary> GetRegulationsAsync(DateTime startDateTime, DateTime endDateTime)
         {
             m_logger.LogInformation($"Calculating regulations for simulation {m_SimulationId} ({startDateTime} - {endDateTime})");
 
-            if (m_MSEQuotaData is null || m_QuotaShares is null || m_SurimiContract is null || m_Biomass.Length <= m_MSEQuotaData.nLiving)
+            if (m_MSEQuotaData is null || m_Biomass.Length <= m_MSEQuotaData.nLiving)
             {
                 throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
             }
+
+            m_QuotaShares = await m_quotaShareLoader.LoadAsync(m_ScenarioName);
+            ValidateQuotaSharesMatchContract(m_QuotaShares, m_SurimiContract, m_ScenarioName);
+
+
 
             m_quotaCalculator.DoAssessment(m_Biomass, startDateTime.Year);
 
@@ -170,17 +172,11 @@ namespace SURIMI_fisheries_authority.Services
 
             // Split each species quota across the fleets according to the scenario quota shares
             var totalAllowableCatches = new List<TotalAllowableCatch>();
-            foreach (var species in m_SurimiContract.Items.Species)
+            foreach (var (speciesCode, lifeStage, iGroup) in m_QuotaSpeciesGroupMap.Entries)
             {
-                if (!m_QuotaSpeciesGroupMap.TryGetGroupIndex(species.SpeciesCode, species.LifeStage, out int iGroup))
+                if (!m_QuotaShares.TryGetShares(speciesCode, lifeStage, out var shares))
                 {
-                    // This species was not included in the quota calculation (e.g., because it had no quota defined)
-                    continue;
-                }
-
-                if (!m_QuotaShares.TryGetShares(species.SpeciesCode, species.LifeStage, out var shares))
-                {
-                    throw new InvalidOperationException($"No quota shares configured for species ({species.SpeciesCode}, {species.LifeStage}) while a quota is defined in simulation {m_SimulationId}");
+                    throw new InvalidOperationException($"No quota shares configured for species ({speciesCode}, {lifeStage}) while a quota is defined in simulation {m_SimulationId}");
                 }
 
                 foreach (var (fleet, share) in shares)
@@ -189,8 +185,8 @@ namespace SURIMI_fisheries_authority.Services
                     {
                         Species = new Species()
                         {
-                            SpeciesCode = species.SpeciesCode,
-                            LifeStage = species.LifeStage
+                            SpeciesCode = speciesCode,
+                            LifeStage = lifeStage
                         },
                         FleetSegment = new FleetSegment()
                         {
@@ -207,7 +203,7 @@ namespace SURIMI_fisheries_authority.Services
                 TotalAllowableCatches = totalAllowableCatches
             };
 
-            return Task.FromResult(regulationsSummary);
+            return  regulationsSummary;
         }
 
         public Task UpdateFishingActivityAsync(DateTime startDateTime, DateTime endDateTime, FishingActivitySummary fishingActivitySummary)
