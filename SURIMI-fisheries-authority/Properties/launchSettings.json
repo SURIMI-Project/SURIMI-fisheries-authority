@@ -1,31 +1,38 @@
-﻿{
-    "profiles": {
-        "http": {
-            "commandName": "Project",
-            "environmentVariables": {
-                "ASPNETCORE_ENVIRONMENT": "Development"
-            },
-            "dotnetRunMessages": true,
-            "applicationUrl": "http://localhost:5493"
-        },
-        "https": {
-            "commandName": "Project",
-            "environmentVariables": {
-                "ASPNETCORE_ENVIRONMENT": "Development"
-            },
-            "dotnetRunMessages": true,
-            "applicationUrl": "https://localhost:7244;http://localhost:5493"
-        },
-        "Container (Dockerfile)": {
-            "commandName": "Docker",
-            "launchUrl": "{Scheme}://{ServiceHost}:{ServicePort}",
-            "environmentVariables": {
-                "ASPNETCORE_HTTPS_PORTS": "7244",
-                "ASPNETCORE_HTTP_PORTS": "5493"
-            },
-            "publishAllPorts": true,
-            "useSSL": true
-        }
+{
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "dotnetRunMessages": true,
+      "applicationUrl": "http://localhost:5493"
     },
-    "$schema": "http://json.schemastore.org/launchsettings.json"
+    "https": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "VAULT_ADDR": "https://vault.dive.edito.eu",
+        "VAULT_TOP_DIR": "rikkert",
+        "VAULT_RELATIVE_PATH": "s3-credentials",
+        "VAULT_MOUNT": "secret-kv",
+        "AWS_S3_ENDPOINT": "minio.dive.edito.eu",
+        "AWS_DEFAULT_REGION": "waw3-1",
+        "AWS_BUCKET_NAME": "oidc-rikkert"
+      },
+      "dotnetRunMessages": true,
+      "applicationUrl": "https://localhost:7244;http://localhost:5493"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker",
+      "launchUrl": "{Scheme}://{ServiceHost}:{ServicePort}",
+      "environmentVariables": {
+        "ASPNETCORE_HTTPS_PORTS": "7244",
+        "ASPNETCORE_HTTP_PORTS": "5493"
+      },
+      "publishAllPorts": true,
+      "useSSL": true
+    }
+  },
+  "$schema": "http://json.schemastore.org/launchsettings.json"
 }
