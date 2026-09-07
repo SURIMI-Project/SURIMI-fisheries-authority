@@ -12,7 +12,6 @@ namespace SURIMI_fisheries_authority.Services
     /// </summary>
     public class RecruitmentLoader
     {
-        private const string FileSuffix = "-recruitment.csv";
         private const char Delimiter = ';';
         private const int ColumnCount = 5;
         private readonly IBlobStore _blobStore;
@@ -28,20 +27,21 @@ namespace SURIMI_fisheries_authority.Services
 
         public async Task<StockRecruitmentMap> LoadAsync(string scenarioName)
         {
-            if (!await _blobStore.ExistsAsync($"{scenarioName}{FileSuffix}", PathType.Input))
+            string fileNamePath = $"{scenarioName}/{scenarioName}{"_recruitment.csv"}";
+            if (!await _blobStore.ExistsAsync(fileNamePath, PathType.Input))
             {
-                throw new RpcException(new Status(StatusCode.Internal, $"Couldn't find {scenarioName}{FileSuffix}"));
+                throw new RpcException(new Status(StatusCode.Internal, $"Couldn't find {fileNamePath}"));
             }
 
-            var text = await _blobStore.ReadAllTextAsync($"{scenarioName}{FileSuffix}", PathType.Input);
+            var text = await _blobStore.ReadAllTextAsync(fileNamePath, PathType.Input);
             var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
             if (lines.Length == 0)
             {
-                throw new InvalidDataException($"Recruitment file {scenarioName}{FileSuffix} is empty");
+                throw new InvalidDataException($"Recruitment file fileNamePath is empty");
             }
 
-            ValidateHeader(lines[0], $"{scenarioName}{FileSuffix}");
+            ValidateHeader(lines[0], fileNamePath);
             var map = new StockRecruitmentMap();
 
             for (int iLine = 1; iLine < lines.Length; iLine++)
@@ -51,7 +51,7 @@ namespace SURIMI_fisheries_authority.Services
                     continue;
                 }
 
-                ParseRow(lines[iLine], iLine + 1, map, $"{scenarioName}{FileSuffix}");
+                ParseRow(lines[iLine], iLine + 1, map, fileNamePath);
             }
 
             _logger.LogInformation("Loaded {SpeciesCount} species recruitment configurations for scenario {ScenarioName}", map.SpeciesCount, scenarioName);

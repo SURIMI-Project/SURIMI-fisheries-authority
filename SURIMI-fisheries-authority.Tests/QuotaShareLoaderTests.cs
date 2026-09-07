@@ -15,10 +15,10 @@ namespace SURIMI_fisheries_authority.Tests
         {
             var blobStore = new Mock<IBlobStore>();
             blobStore
-                .Setup(bs => bs.ExistsAsync($"{ScenarioName}-quotashare.csv", PathType.Input, It.IsAny<CancellationToken>()))
+                .Setup(bs => bs.ExistsAsync($"{ScenarioName}/{ScenarioName}_quotashare.csv", PathType.Input, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true);
             blobStore
-                .Setup(bs => bs.ReadAllTextAsync($"{ScenarioName}-quotashare.csv", PathType.Input, It.IsAny<CancellationToken>()))
+                .Setup(bs => bs.ReadAllTextAsync($"{ScenarioName}/{ScenarioName}_quotashare.csv", PathType.Input, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(csvContent);
             return new QuotaShareLoader(blobStore.Object, NullLogger<QuotaShareLoader>.Instance);
         }

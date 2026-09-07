@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>SURIMI_fisheries_authority</RootNamespace>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    <UserSecretsId>3e27b886-c5a2-46cb-b03f-1918a544dcd2</UserSecretsId>
   </PropertyGroup>
 
     <ItemGroup>
@@ -23,6 +24,20 @@
 
     <ItemGroup>
         <None Update="Includes\*.csv" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Includes\aegean_sea\" />
+      <Folder Include="Includes\anchovy_bay\" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update="Includes\northwestern_med\northwestern_med_quotashare.csv">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="Includes\northwestern_med\northwestern_med_recruitment.csv">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
     </ItemGroup>
 
 </Project>

@@ -12,7 +12,6 @@ namespace SURIMI_fisheries_authority.Services
     /// </summary>
     public class QuotaShareLoader
     {
-        private const string FileSuffix = "-quotashare.csv";
         private const char Delimiter = ';';
         private readonly IBlobStore _blobStore;
         private readonly ILogger<QuotaShareLoader> _logger;
@@ -29,20 +28,22 @@ namespace SURIMI_fisheries_authority.Services
 
         public async Task<FleetQuotaShareMap> LoadAsync(string scenarioName)
         {
-            if (!await _blobStore.ExistsAsync($"{scenarioName}{FileSuffix}", PathType.Input))
+            string fileNamePath = $"{scenarioName}/{scenarioName}{"_quotashare.csv"}";
+
+            if (!await _blobStore.ExistsAsync(fileNamePath, PathType.Input))
             {
-                throw new RpcException(new Status(StatusCode.Internal, $"Couldn't find {scenarioName}{FileSuffix}"));
+                throw new RpcException(new Status(StatusCode.Internal, $"Couldn't find fileNamePath"));
             }
 
-            var text = await _blobStore.ReadAllTextAsync($"{scenarioName}{FileSuffix}", PathType.Input);
+            var text = await _blobStore.ReadAllTextAsync(fileNamePath, PathType.Input);
             var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
             if (lines.Length == 0)
             {
-                throw new InvalidDataException($"Quota share file {scenarioName}{FileSuffix} is empty");
+                throw new InvalidDataException($"Quota share file fileNamePath is empty");
             }
 
-            var fleets = ParseHeader(lines[0], $"{scenarioName}{FileSuffix}", out int fleetColumnCount);
+            var fleets = ParseHeader(lines[0], fileNamePath, out int fleetColumnCount);
             var map = new FleetQuotaShareMap(fleets);
 
             for (int iLine = 1; iLine < lines.Length; iLine++)
@@ -52,7 +53,7 @@ namespace SURIMI_fisheries_authority.Services
                     continue;
                 }
 
-                ParseRow(lines[iLine], iLine + 1, fleets, fleetColumnCount, map, $"{scenarioName}{FileSuffix}");
+                ParseRow(lines[iLine], iLine + 1, fleets, fleetColumnCount, map, fileNamePath);
             }
             _logger.LogInformation("Loaded {SpeciesCount} species quota shares for scenario {ScenarioName}", map.SpeciesCount, scenarioName);
             return map;

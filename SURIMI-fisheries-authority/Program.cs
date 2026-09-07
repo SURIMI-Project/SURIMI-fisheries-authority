@@ -3,7 +3,6 @@ using Eii.BlobStore.S3;
 using EwECore.MSE;
 using SURIMI.Common.gRPC;
 using SURIMI.Common.gRPC.Services;
-using SURIMI_fisheries_authority.Models;
 using SURIMI_fisheries_authority.Services;
 
 namespace SURIMI_fisheries_authority
@@ -25,7 +24,7 @@ namespace SURIMI_fisheries_authority
                         Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID"),
                         Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY"),
                         Environment.GetEnvironmentVariable("AWS_BUCKET_NAME"),
-                        inputBasePrefix: @"controller", outputBasePrefix: @"controller", localInputRoot: "Includes", localOutputRoot: "Output");
+                        inputBasePrefix: @"fisheries_authority", outputBasePrefix: @"fisheries_authority", localInputRoot: "Includes", localOutputRoot: "Output");
                 }
 
                 // Default local Filesystem
@@ -75,7 +74,39 @@ namespace SURIMI_fisheries_authority
             var protocolVersion = protocolVersionService.LoadVersion();
             logger.LogInformation("Starting Fisheries Authority with protocol version {ProtocolVersion}", protocolVersion);
 
+            LoadVaultSecretsInEnvironmentVariables();
+
             app.Run();
+        }
+
+        static void LoadVaultSecretsInEnvironmentVariables()
+        {
+            var vaultAddr = Environment.GetEnvironmentVariable("VAULT_ADDR");
+            var vaultToken = Environment.GetEnvironmentVariable("VAULT_TOKEN");
+            var vaultTopDir = Environment.GetEnvironmentVariable("VAULT_TOP_DIR");
+            var vaultRelativePath = Environment.GetEnvironmentVariable("VAULT_RELATIVE_PATH");
+            var vaultMount = Environment.GetEnvironmentVariable("VAULT_MOUNT");
+            if (string.IsNullOrEmpty(vaultAddr) || string.IsNullOrEmpty(vaultToken) || string.IsNullOrEmpty(vaultTopDir) || string.IsNullOrEmpty(vaultRelativePath) || string.IsNullOrEmpty(vaultMount))
+            {
+                Console.WriteLine("Vault Addr, Token, Top Dir, Relative Path, or Mount not set in environment variables. Skipping Vault loading.");
+                return;
+            }
+            var vaultClient = new VaultSharp.VaultClient(new VaultSharp.VaultClientSettings(vaultAddr, new VaultSharp.V1.AuthMethods.Token.TokenAuthMethodInfo(vaultToken)));
+            // Assuming secrets are stored under "secret/data/surimi"
+            var secretPath = $"{vaultTopDir}/{vaultRelativePath}";
+            try
+            {
+                var secret = vaultClient.V1.Secrets.KeyValue.V2.ReadSecretAsync(secretPath, mountPoint: vaultMount).Result;
+                foreach (var kv in secret.Data.Data)
+                {
+                    Environment.SetEnvironmentVariable(kv.Key, kv.Value.ToString());
+                    Console.WriteLine($"Loaded secret '{kv.Key}' from Vault into environment variables.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading secrets from Vault: {ex.Message}");
+            }
         }
     }
 }
