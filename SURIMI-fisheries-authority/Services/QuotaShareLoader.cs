@@ -7,17 +7,14 @@ namespace SURIMI_fisheries_authority.Services
 {
     /// <summary>
     /// Loads the fleet quota share configuration for a scenario from a wide-format CSV file:
-    /// semicolon-delimited, comma as decimal separator, one column per fleet named "GEAR,COUNTRY",
-    /// with a trailing "Sum" column that is ignored.
+    /// comma-delimited, dot as decimal separator, one column per fleet named "GEAR|COUNTRY".
     /// </summary>
     public class QuotaShareLoader
     {
-        private const char Delimiter = ';';
+        private const char Delimiter = ',';
+        private const float ShareSumTolerance = 1e-4f;
         private readonly IBlobStore _blobStore;
         private readonly ILogger<QuotaShareLoader> _logger;
-
-
-        private static readonly NumberFormatInfo s_numberFormat = new() { NumberDecimalSeparator = "," };
 
 
         public QuotaShareLoader(IBlobStore blobStore, ILogger<QuotaShareLoader> logger)
@@ -66,23 +63,18 @@ namespace SURIMI_fisheries_authority.Services
                 || !string.Equals(cells[0].Trim(), "species_code", StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(cells[1].Trim(), "life_stage", StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidDataException($"Quota share file {filePath} has an invalid header; expected 'species_code;life_stage;GEAR,COUNTRY;...;Sum'");
+                throw new InvalidDataException($"Quota share file {filePath} has an invalid header; expected 'species_code,life_stage,GEAR|COUNTRY,...'");
             }
 
-            // The trailing "Sum" column is not a fleet column
             fleetColumnCount = cells.Length - 2;
-            if (string.Equals(cells[^1].Trim(), "Sum", StringComparison.OrdinalIgnoreCase))
-            {
-                fleetColumnCount--;
-            }
 
             var fleets = new List<FleetKey>(fleetColumnCount);
             for (int iFleet = 0; iFleet < fleetColumnCount; iFleet++)
             {
-                var parts = cells[iFleet + 2].Split(',');
+                var parts = cells[iFleet + 2].Split('|');
                 if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(parts[1]))
                 {
-                    throw new InvalidDataException($"Invalid fleet column '{cells[iFleet + 2]}' in header of {filePath}; expected 'GEAR,COUNTRY'");
+                    throw new InvalidDataException($"Invalid fleet column '{cells[iFleet + 2]}' in header of {filePath}; expected 'GEAR|COUNTRY'");
                 }
 
                 var fleet = new FleetKey(parts[0].Trim(), parts[1].Trim());
@@ -112,7 +104,6 @@ namespace SURIMI_fisheries_authority.Services
             }
 
             var shares = new List<(FleetKey Fleet, float Share)>();
-            float sum = 0f;
             for (int iFleet = 0; iFleet < fleetColumnCount; iFleet++)
             {
                 var cell = cells[iFleet + 2].Trim();
@@ -121,18 +112,18 @@ namespace SURIMI_fisheries_authority.Services
                     continue;
                 }
 
-                if (!float.TryParse(cell, NumberStyles.Float, s_numberFormat, out float share))
+                if (!float.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out float share))
                 {
                     throw new InvalidDataException($"Invalid share value '{cell}' for species ({speciesCode}, {lifeStage}) on line {lineNumber} of {filePath}");
                 }
 
                 shares.Add((fleets[iFleet], share));
-                sum += share;
             }
 
-            if (sum != 1.0f)
+            float sum = shares.Sum(s => s.Share);
+            if (Math.Abs(sum - 1f) > ShareSumTolerance)
             {
-                throw new InvalidDataException($"Shares for species ({speciesCode}, {lifeStage}) on line {lineNumber} of {filePath} sum to {sum}; expected exactly 1");
+                throw new InvalidDataException($"Shares for species ({speciesCode}, {lifeStage}) on line {lineNumber} of {filePath} sum to {sum.ToString(CultureInfo.InvariantCulture)}; expected 1");
             }
 
             if (!map.Add(new SpeciesKey(speciesCode, lifeStage), shares))
