@@ -202,18 +202,42 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
-        public async Task UpdateCatchDisposition_ThrowsWhenSpeciesUnmapped()
+        public async Task UpdateBiomass_IgnoresUnmappedSpecies()
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
+
+            // Act
+            await service.UpdateBiomassAsync([CreateBiomassGrid("XXX", 50.0), CreateBiomassGrid("PIL", 100.0)]);
+
+            // Assert
+            service.m_Biomass[1].Should().Be(100.0f);
+            service.m_Biomass[2].Should().Be(0.0f);
+            service.m_MSEQuotaData!.Bestimate[1].Should().Be(100.0f);
+            service.m_MSEQuotaData.Bestimate[2].Should().Be(0.0f);
+        }
+
+        [Fact]
+        public async Task UpdateCatchDisposition_IgnoresUnmappedSpecies()
+        {
+            // Arrange
+            var service = await CreateInitialisedServiceAsync();
+            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 100.0)]);
             var summary = new CatchDispositionSummary
             {
-                DispositionGrids = [CreateGrid("XXX", "ART", (10.0, 0.0, 0.0))]
+                DispositionGrids =
+                [
+                    CreateGrid("XXX", "ART", (10.0, 0.0, 0.0)),
+                    CreateGrid("PIL", "ART", (8.0, 0.0, 0.0))
+                ]
             };
 
-            // Act & Assert
-            var act = () => service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, summary);
-            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*No group found*");
+            // Act
+            await service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, summary);
+
+            // Assert
+            service.m_MSEQuotaData!.CatchYearGroup[1].Should().Be(8.0f);
+            service.m_MSEQuotaData.CatchYearGroup[2].Should().Be(0.0f);
         }
 
         [Fact]
@@ -316,9 +340,27 @@ namespace SURIMI_fisheries_authority.Tests
                 FMax = 0.05
             });
 
-            // Act & Assert
+            // Act
             var act = () => service.CreateRegulationsAsync(summary);
+
+            // Assert
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Duplicate species*");
+        }
+
+        [Fact]
+        public async Task CreateRegulations_ThrowsOnMultipleCalls()
+        {
+            // Arrange
+            var service = CreateService();
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            var summary = CreateRegulationSummary();
+            await service.CreateRegulationsAsync(summary);
+
+            // Act
+            var act = () => service.CreateRegulationsAsync(summary);
+
+            // Assert
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Simulation with Id sim-1 already has regulations*");
         }
 
         [Fact]
