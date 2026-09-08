@@ -47,6 +47,10 @@ namespace SURIMI_fisheries_authority.Services
 
         public async Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary)
         {
+            if(m_MSEQuotaData != null)
+            {
+                throw new InvalidOperationException($"Simulation with Id {m_SimulationId} already has regulations");
+            }
             m_MSEQuotaData = new MSEQuotaData(
                 regulationDefinitionsSummary.TargetFishingMortalities.Count,
                 m_SurimiContract.Items.FleetSegments.Count
@@ -80,6 +84,8 @@ namespace SURIMI_fisheries_authority.Services
                 m_MSEQuotaData.Blim[iGroup] = (float)tfm.BiomassLimit;
                 m_MSEQuotaData.Bbase[iGroup] = (float)tfm.BiomassBase;
                 m_MSEQuotaData.Fopt[iGroup] = (float)tfm.FMax;
+
+                m_logger.LogInformation($"Regulation definition for species ({tfm.Species.SpeciesCode}, {tfm.Species.LifeStage}) group {iGroup} in simulation {m_SimulationId}: Blim={tfm.BiomassLimit}, Bbase={tfm.BiomassBase}, Fopt={tfm.FMax}, RstockRatio={recruitmentConfig.RstockRatio}, RHalfB0Ratio={recruitmentConfig.RHalfB0Ratio}, cvRec={recruitmentConfig.cvRec}");
             }
 
             m_Biomass = new float[m_MSEQuotaData.nGroups + 1];
@@ -94,7 +100,7 @@ namespace SURIMI_fisheries_authority.Services
             {
                 if (!m_QuotaSpeciesGroupMap.TryGetGroupIndex(grid.Species.SpeciesCode, grid.Species.LifeStage, out int iGroup))
                 {
-                    throw new InvalidOperationException($"No group found for species ({grid.Species.SpeciesCode}, {grid.Species.LifeStage}) in simulation {m_SimulationId}; cannot update biomass");
+                    continue;   // we are only interested in species that are part of the quota calculation, so we can skip any other species
                 }
 
                 m_Biomass[iGroup] += (float)grid.BiomassCells.Sum(cell => cell.Biomass);
@@ -121,7 +127,7 @@ namespace SURIMI_fisheries_authority.Services
             {
                 if (!m_QuotaSpeciesGroupMap.TryGetGroupIndex(grid.Species.SpeciesCode, grid.Species.LifeStage, out int iGroup))
                 {
-                    throw new InvalidOperationException($"No group found for species ({grid.Species.SpeciesCode}, {grid.Species.LifeStage}) in simulation {m_SimulationId}; cannot update catch disposition");
+                    continue;   // we are only interested in species that are part of the quota calculation, so we can skip any other species
                 }
 
                 var landings = (float)grid.DispositionCells.Sum(cell => cell.GrossCatchBiomass - cell.LiveDiscardsBiomass);
@@ -181,6 +187,8 @@ namespace SURIMI_fisheries_authority.Services
 
                 foreach (var (fleet, share) in shares)
                 {
+                    var tac = quotas[iGroup] * share;
+                    m_logger.LogInformation($"TAC for species ({speciesCode}, {lifeStage}) fleet ({fleet.GearCode}, {fleet.CountryCode}) in simulation {m_SimulationId}: {tac}");
                     totalAllowableCatches.Add(new TotalAllowableCatch
                     {
                         Species = new Species()
@@ -193,7 +201,7 @@ namespace SURIMI_fisheries_authority.Services
                             GearCode = fleet.GearCode,
                             CountryCode = fleet.CountryCode
                         },
-                        Catch = quotas[iGroup] * share
+                        Catch = tac
                     });
                 }
             }

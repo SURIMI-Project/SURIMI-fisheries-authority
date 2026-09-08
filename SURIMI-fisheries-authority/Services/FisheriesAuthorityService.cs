@@ -309,11 +309,11 @@ namespace SURIMI_fisheries_authority.Services
         /// </summary>
         /// <param name="regulationDefinitionsSummary"></param>
         /// <returns></returns>
-        private static SURIMI.Datamodel.RegulationDefinitionsSummary GetRegulationDefinitionsSummary(RegulationDefinitionsSummary regulationDefinitionsSummary)
+        private static SURIMI.Datamodel.RegulationDefinitionsSummary GetRegulationDefinitionsSummary(RegulationDefinitionsSummary? regulationDefinitionsSummary)
         {
             return new SURIMI.Datamodel.RegulationDefinitionsSummary
             {
-                TargetFishingMortalities = regulationDefinitionsSummary.TargetFishingMortalities
+                TargetFishingMortalities = regulationDefinitionsSummary?.TargetFishingMortalities?
                     .Select(tfm => new SURIMI.Datamodel.TargetFishingMortality
                     {
                         Species = GetSpecies(tfm.Species),
@@ -321,7 +321,7 @@ namespace SURIMI_fisheries_authority.Services
                         BiomassBase = tfm.BiomassBase,
                         FMax = tfm.FMax
                     })
-                    .ToList()
+                    .ToList() ?? new List<SURIMI.Datamodel.TargetFishingMortality>()    // if no TargetFishingMortalities are provided, return an empty list
             };
         }
 
