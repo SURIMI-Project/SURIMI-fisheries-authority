@@ -28,9 +28,9 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var loader = CreateLoader(
-                "species_code;life_stage;ART,ESP;ART,FRA;OTB,ESP;Sum\n" +
-                "PIL;;0,5;0,25;0,25;1\n" +
-                "KHE;ADULT;0,75;;0,25;1\n");
+                "species_code,life_stage,ART|ESP,ART|FRA,OTB|ESP\n" +
+                "PIL,,0.5,0.25,0.25\n" +
+                "KHE,ADULT,0.75,,0.25\n");
 
             // Act
             var map = await loader.LoadAsync(ScenarioName);
@@ -69,25 +69,12 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
-        public async Task Load_ThrowsWhenSharesDoNotSumToOne()
-        {
-            // Arrange
-            var loader = CreateLoader(
-                "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
-                "PIL;;0,6;0,3;1\n");
-
-            // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName);
-            await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*PIL*sum*");
-        }
-
-        [Fact]
         public async Task Load_ThrowsOnMalformedShareValue()
         {
             // Arrange
             var loader = CreateLoader(
-                "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
-                "PIL;;abc;0,5;1\n");
+                "species_code,life_stage,ART|ESP,OTB|ESP\n" +
+                "PIL,,abc,0.5\n");
 
             // Act & Assert
             var act = () => loader.LoadAsync(ScenarioName);
@@ -99,8 +86,8 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var loader = CreateLoader(
-                "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
-                "PIL;;1\n");
+                "species_code,life_stage,ART|ESP,OTB|ESP\n" +
+                "PIL,,1\n");
 
             // Act & Assert
             var act = () => loader.LoadAsync(ScenarioName);
@@ -112,9 +99,9 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var loader = CreateLoader(
-                "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
-                "PIL;;0,5;0,5;1\n" +
-                "PIL;;1;;1\n");
+                "species_code,life_stage,ART|ESP,OTB|ESP\n" +
+                "PIL,,0.5,0.5\n" +
+                "PIL,,1,\n");
 
             // Act & Assert
             var act = () => loader.LoadAsync(ScenarioName);
@@ -122,12 +109,54 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
+        public async Task Load_ThrowsWhenSharesSumBelowOne()
+        {
+            // Arrange
+            var loader = CreateLoader(
+                "species_code,life_stage,ART|ESP,OTB|ESP\n" +
+                "PIL,,0.5,0.25\n");
+
+            // Act & Assert
+            var act = () => loader.LoadAsync(ScenarioName);
+            await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*sum*");
+        }
+
+        [Fact]
+        public async Task Load_ThrowsWhenSharesSumAboveOne()
+        {
+            // Arrange
+            var loader = CreateLoader(
+                "species_code,life_stage,ART|ESP,OTB|ESP\n" +
+                "PIL,,0.75,0.5\n");
+
+            // Act & Assert
+            var act = () => loader.LoadAsync(ScenarioName);
+            await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*sum*");
+        }
+
+        [Fact]
+        public async Task Load_AcceptsSharesWithinRoundingTolerance()
+        {
+            // Arrange
+            var loader = CreateLoader(
+                "species_code,life_stage,ART|ESP,ART|FRA,OTB|ESP\n" +
+                "PIL,,0.3333,0.3333,0.3334\n");
+
+            // Act
+            var map = await loader.LoadAsync(ScenarioName);
+
+            // Assert
+            map.TryGetShares("PIL", "", out var shares).Should().BeTrue();
+            shares.Should().HaveCount(3);
+        }
+
+        [Fact]
         public async Task Load_ThrowsOnInvalidFleetColumn()
         {
             // Arrange
             var loader = CreateLoader(
-                "species_code;life_stage;ARTESP;Sum\n" +
-                "PIL;;1;1\n");
+                "species_code,life_stage,ARTESP\n" +
+                "PIL,,1\n");
 
             // Act & Assert
             var act = () => loader.LoadAsync(ScenarioName);

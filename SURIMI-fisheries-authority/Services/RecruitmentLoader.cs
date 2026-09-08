@@ -7,17 +7,15 @@ namespace SURIMI_fisheries_authority.Services
 {
     /// <summary>
     /// Loads the stock recruitment configuration for a scenario from a narrow-format CSV file:
-    /// semicolon-delimited, comma as decimal separator, one row per species with the columns
-    /// "species_code;life_stage;RstockRatio;RHalfB0Ratio;cvRec".
+    /// comma-delimited, dot as decimal separator, one row per species with the columns
+    /// "species_code,life_stage,RstockRatio,RHalfB0Ratio,cvRec".
     /// </summary>
     public class RecruitmentLoader
     {
-        private const char Delimiter = ';';
+        private const char Delimiter = ',';
         private const int ColumnCount = 5;
         private readonly IBlobStore _blobStore;
         private readonly ILogger<RecruitmentLoader> _logger;
-
-        private static readonly NumberFormatInfo s_numberFormat = new() { NumberDecimalSeparator = "," };
 
         public RecruitmentLoader(IBlobStore blobStore, ILogger<RecruitmentLoader> logger)
         {
@@ -68,7 +66,7 @@ namespace SURIMI_fisheries_authority.Services
                 || !string.Equals(cells[3].Trim(), "RHalfB0Ratio", StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(cells[4].Trim(), "cvRec", StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidDataException($"Recruitment file {filePath} has an invalid header; expected 'species_code;life_stage;RstockRatio;RHalfB0Ratio;cvRec'");
+                throw new InvalidDataException($"Recruitment file {filePath} has an invalid header; expected 'species_code,life_stage,RstockRatio,RHalfB0Ratio,cvRec'");
             }
         }
 
@@ -100,7 +98,7 @@ namespace SURIMI_fisheries_authority.Services
         private static float ParseValue(string cell, string columnName, string speciesCode, string lifeStage, int lineNumber, string filePath)
         {
             var trimmed = cell.Trim();
-            if (!float.TryParse(trimmed, NumberStyles.Float, s_numberFormat, out float value))
+            if (!float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out float value))
             {
                 throw new InvalidDataException($"Invalid {columnName} value '{trimmed}' for species ({speciesCode}, {lifeStage}) on line {lineNumber} of {filePath}");
             }

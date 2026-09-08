@@ -28,9 +28,9 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var loader = CreateLoader(
-                "species_code;life_stage;RstockRatio;RHalfB0Ratio;cvRec\n" +
-                "BOG;;0,893;0,2;0,8\n" +
-                "HKE;ADULT;0,7134952;0,25;0,8\n");
+                "species_code,life_stage,RstockRatio,RHalfB0Ratio,cvRec\n" +
+                "BOG,,0.893,0.2,0.8\n" +
+                "HKE,ADULT,0.7134952,0.25,0.8\n");
 
             // Act
             var map = await loader.LoadAsync(ScenarioName);
@@ -69,8 +69,8 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var loader = CreateLoader(
-                "species_code;life_stage;RstockRatio;RHalfB0Ratio;cvRec\n" +
-                "BOG;;abc;0,2;0,8\n");
+                "species_code,life_stage,RstockRatio,RHalfB0Ratio,cvRec\n" +
+                "BOG,,abc,0.2,0.8\n");
 
             // Act & Assert
             var act = () => loader.LoadAsync(ScenarioName);
@@ -82,8 +82,8 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var loader = CreateLoader(
-                "species_code;life_stage;RstockRatio;RHalfB0Ratio;cvRec\n" +
-                "BOG;;0,893;0,2\n");
+                "species_code,life_stage,RstockRatio,RHalfB0Ratio,cvRec\n" +
+                "BOG,,0.893,0.2\n");
 
             // Act & Assert
             var act = () => loader.LoadAsync(ScenarioName);
@@ -95,9 +95,9 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var loader = CreateLoader(
-                "species_code;life_stage;RstockRatio;RHalfB0Ratio;cvRec\n" +
-                "BOG;;0,893;0,2;0,8\n" +
-                "BOG;;0,5;0,2;0,8\n");
+                "species_code,life_stage,RstockRatio,RHalfB0Ratio,cvRec\n" +
+                "BOG,,0.893,0.2,0.8\n" +
+                "BOG,,0.5,0.2,0.8\n");
 
             // Act & Assert
             var act = () => loader.LoadAsync(ScenarioName);
@@ -109,8 +109,8 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var loader = CreateLoader(
-                "species_code;life_stage;RstockRatio;cvRec\n" +
-                "BOG;;0,893;0,8\n");
+                "species_code,life_stage,RstockRatio,cvRec\n" +
+                "BOG,,0.893,0.8\n");
 
             // Act & Assert
             var act = () => loader.LoadAsync(ScenarioName);
