@@ -33,19 +33,18 @@ namespace SURIMI_fisheries_authority.Services
             m_recruitmentLoader = recruitmentLoader;
         }
 
-        public async Task InitialiseSimulationAsync(string simulationId, string scenarioName, SurimiContract surimiContract)
+        public Task InitialiseSimulationAsync(string simulationId, string scenarioName, SurimiContract surimiContract)
         {
-
-
             m_SimulationId = simulationId;
             m_SurimiContract = surimiContract;
             m_ScenarioName = scenarioName;
             // EwECore VB arrays are 1-based with inclusive sizing. To keep the same indexing, we allocate nGroups + 1 elements and ignore index 0.
             
             m_logger.LogInformation($"Initialized simulation {simulationId} ");
+            return Task.CompletedTask;
         }
 
-        public async Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary)
+        public async Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary, CancellationToken cancellationToken)
         {
             if(m_MSEQuotaData != null)
             {
@@ -59,7 +58,10 @@ namespace SURIMI_fisheries_authority.Services
             m_stockRecruitment.Data = m_MSEQuotaData;
             m_quotaCalculator.Data = m_MSEQuotaData;
 
-            var recruitmentMap = await m_recruitmentLoader.LoadAsync(m_ScenarioName);
+            m_QuotaShares = await m_quotaShareLoader.LoadAsync(m_ScenarioName, cancellationToken);
+            ValidateQuotaSharesMatchContract(m_QuotaShares, m_SurimiContract, m_ScenarioName);
+
+            var recruitmentMap = await m_recruitmentLoader.LoadAsync(m_ScenarioName, cancellationToken);
             ValidateRecruitmentMatchContract(recruitmentMap, m_SurimiContract, m_ScenarioName);
 
             foreach (var tfm in regulationDefinitionsSummary.TargetFishingMortalities ?? Enumerable.Empty<TargetFishingMortality>())
@@ -159,13 +161,10 @@ namespace SURIMI_fisheries_authority.Services
         {
             m_logger.LogInformation($"Calculating regulations for simulation {m_SimulationId} ({startDateTime} - {endDateTime})");
 
-            if (m_MSEQuotaData is null || m_Biomass.Length <= m_MSEQuotaData.nLiving)
+            if (m_MSEQuotaData is null || m_Biomass is null || m_Biomass.Length <= m_MSEQuotaData.nLiving)
             {
                 throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
             }
-
-            m_QuotaShares = await m_quotaShareLoader.LoadAsync(m_ScenarioName);
-            ValidateQuotaSharesMatchContract(m_QuotaShares, m_SurimiContract, m_ScenarioName);
 
             m_quotaCalculator.DoAssessment(m_Biomass, startDateTime.Year);
 

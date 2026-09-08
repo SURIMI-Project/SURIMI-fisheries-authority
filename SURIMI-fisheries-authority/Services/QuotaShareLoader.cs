@@ -23,21 +23,21 @@ namespace SURIMI_fisheries_authority.Services
             _logger = logger;
         }
 
-        public async Task<FleetQuotaShareMap> LoadAsync(string scenarioName)
+        public async Task<FleetQuotaShareMap> LoadAsync(string scenarioName, CancellationToken cancellationToken)
         {
-            string fileNamePath = $"{scenarioName}/{scenarioName}{"_quotashare.csv"}";
+            string fileNamePath = $"{scenarioName}/{scenarioName}_quotashare.csv";
 
-            if (!await _blobStore.ExistsAsync(fileNamePath, PathType.Input))
+            if (!await _blobStore.ExistsAsync(fileNamePath, PathType.Input, cancellationToken))
             {
-                throw new RpcException(new Status(StatusCode.Internal, $"Couldn't find fileNamePath"));
+                throw new RpcException(new Status(StatusCode.Internal, $"Couldn't find {fileNamePath}"));
             }
 
-            var text = await _blobStore.ReadAllTextAsync(fileNamePath, PathType.Input);
+            var text = await _blobStore.ReadAllTextAsync(fileNamePath, PathType.Input, cancellationToken);
             var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
             if (lines.Length == 0)
             {
-                throw new InvalidDataException($"Quota share file fileNamePath is empty");
+                throw new InvalidDataException($"Quota share file {fileNamePath} is empty");
             }
 
             var fleets = ParseHeader(lines[0], fileNamePath, out int fleetColumnCount);

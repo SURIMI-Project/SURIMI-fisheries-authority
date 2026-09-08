@@ -10,7 +10,20 @@
 - EwECore arrays are 1-based with inclusive sizing: allocate `nGroups + 1` elements and ignore index 0.
 - Use string interpolation in log messages, `m_` prefix for private instance fields, and nullable reference types (`<Nullable>enable</Nullable>`).
 - Guard operational methods with an `InvalidOperationException` when the simulation is not initialised.
+- Async methods that perform I/O (blob storage, loaders, service operations) accept a `CancellationToken` parameter and pass it through to all awaited calls; gRPC endpoints forward `context.CancellationToken`.
 - Only add comments when they explain domain logic (e.g., discard survival, index conventions).
+
+## Domain notes
+- Catches removed from the stock = `GrossCatchBiomass - LiveDiscardsBiomass` (live discards survive; dead discards remain part of the removal).
+- Yearly accumulators (`Biomass`, `CatchYearGroup`) are cleared in `GetRegulationsAsync` after quotas are calculated, so they cover exactly one regulatory year.
+- `Bestimate[]` must be seeded exactly once by `QuotaCalculationService` on the first biomass update for a group, and never re-assigned afterwards: `cMSEQuotaCalculator` uses the *previous* `Bestimate` value in its assessment and then updates it itself. 
+- `BhalfT`, `Rmax` and `Fish1` are one-time startup values derived from the initial (unfished) biomass B0 and the first catch disposition; they stay constant for the rest of the simulation. The `m_IsBiomassAlreadyAssigned` / `m_IsCatchYearGroupAlreadyAssigned` flags guard this one-time initialisation and are intentionally never reset.
+
+## Scenario configuration files
+- Scenario CSV files (quota shares, recruitment) are comma-delimited with a dot as decimal separator (`CultureInfo.InvariantCulture`).
+- Quota share files are wide-format: header `species_code,life_stage,GEAR|COUNTRY,...` with one column per fleet named `GEAR|COUNTRY`; an empty cell means the fleet has no share; shares per species must sum to 1 (tolerance 1e-4).
+- Recruitment files are narrow-format: header `species_code,life_stage,RstockRatio,RHalfB0Ratio,cvRec`.
+- Loaders validate CSV contents against the `SurimiContract` in `CreateRegulationsAsync` (species and fleets in the file must exist in the contract).
 
 ## Unit tests
 - Test project: `SURIMI-fisheries-authority.Tests` (xUnit, net10.0).
@@ -21,7 +34,5 @@
 - Name tests `MethodUnderTest_ExpectedBehaviour` (e.g., `UpdateCatchDisposition_AccumulatesAcrossMonthlyCalls`).
 - Use `Moq` to mock interfaces (e.g., `IMSEStockRecruitment`, `IMSEQuotaCalculator`) and `FluentAssertions` for assertions (`.Should().Be(...)`, `.Should().ThrowAsync<...>()`).
 - Use shared private helpers to build test data (e.g., `CreateInitialisedServiceAsync`, `CreateGrid`).
-
-## Domain notes
-- Catches removed from the stock = `GrossCatchBiomass - LiveDiscardsBiomass` (live discards survive; dead discards remain part of the removal).
-- Yearly accumulators (`Biomass`, `CatchYearGroup`) are cleared in `GetRegulationsAsync` after quotas are calculated, so they cover exactly one regulatory year.
+- Keep CSV fixtures in tests in the current loader format (comma-delimited, dot decimals, `GEAR|COUNTRY` fleet columns).
+- When testing gRPC endpoints, pass a minimal `ServerCallContext` stub (see `TestServerCallContext` in `FisheriesAuthorityServiceTests`) instead of `null`, since endpoints read `context.CancellationToken`.

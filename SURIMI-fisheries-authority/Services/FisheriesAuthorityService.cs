@@ -205,7 +205,7 @@ namespace SURIMI_fisheries_authority.Services
             try
             {
                 var regulationDefinitionsSummary = GetRegulationDefinitionsSummary(request.RegulationsSummary);
-                await m_simulationScopeManager.GetService(request.SimulationId).CreateRegulationsAsync(regulationDefinitionsSummary);
+                await m_simulationScopeManager.GetService(request.SimulationId).CreateRegulationsAsync(regulationDefinitionsSummary, context.CancellationToken);
                 return new CreateRegulationsResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)

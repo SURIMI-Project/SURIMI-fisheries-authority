@@ -11,7 +11,7 @@ namespace SURIMI_fisheries_authority.Services
         Task UpdateBiomassAsync(List<BiomassGrid> biomassGrids);
         Task UpdateCatchDispositionAsync(DateTime startDateTime, DateTime endDateTime, CatchDispositionSummary catchDispositionSummary);
         Task UpdateFishingActivityAsync(DateTime startDateTime, DateTime endDateTime, FishingActivitySummary fishingActivitySummary);
-        Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary);
+        Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary, CancellationToken cancellationToken);
         Task<RegulationsSummary> GetRegulationsAsync(DateTime startDateTime, DateTime endDateTime);
     }
 }
