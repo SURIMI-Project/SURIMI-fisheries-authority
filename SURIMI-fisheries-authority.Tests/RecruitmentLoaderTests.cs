@@ -33,7 +33,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "HKE,ADULT,0.7134952,0.25,0.8\n");
 
             // Act
-            var map = await loader.LoadAsync(ScenarioName);
+            var map = await loader.LoadAsync(ScenarioName, CancellationToken.None);
 
             // Assert
             map.SpeciesCount.Should().Be(2);
@@ -60,7 +60,7 @@ namespace SURIMI_fisheries_authority.Tests
             var loader = new RecruitmentLoader(blobStore.Object, NullLogger<RecruitmentLoader>.Instance);
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName);
+            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
             await act.Should().ThrowAsync<RpcException>();
         }
 
@@ -73,7 +73,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "BOG,,abc,0.2,0.8\n");
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName);
+            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
             await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*RstockRatio*abc*");
         }
 
@@ -86,7 +86,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "BOG,,0.893,0.2\n");
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName);
+            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
             await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*columns*");
         }
 
@@ -100,7 +100,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "BOG,,0.5,0.2,0.8\n");
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName);
+            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
             await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*Duplicate species*");
         }
 
@@ -113,7 +113,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "BOG,,0.893,0.8\n");
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName);
+            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
             await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*invalid header*");
         }
     }

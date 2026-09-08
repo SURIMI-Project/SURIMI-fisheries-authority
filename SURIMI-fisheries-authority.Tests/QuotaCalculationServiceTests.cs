@@ -29,9 +29,9 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Matches the species and fleets of CreateContract exactly
             return CreateQuotaShareBlobStore(
-                "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
-                "PIL;;0,75;0,25;1\n" +
-                "KHE;;0,5;0,5;1\n");
+                "species_code,life_stage,ART|ESP,OTB|ESP\n" +
+                "PIL,,0.75,0.25\n" +
+                "KHE,,0.5,0.5\n");
         }
 
         private static IBlobStore CreateRecruitmentBlobStore(string csvContent)
@@ -50,9 +50,9 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Matches the species of CreateContract exactly
             return CreateRecruitmentBlobStore(
-                "species_code;life_stage;RstockRatio;RHalfB0Ratio;cvRec\n" +
-                "PIL;;0,893;0,2;0,8\n" +
-                "KHE;;0,7134952;0,25;0,9\n");
+                "species_code,life_stage,RstockRatio,RHalfB0Ratio,cvRec\n" +
+                "PIL,,0.893,0.2,0.8\n" +
+                "KHE,,0.7134952,0.25,0.9\n");
         }
 
         private static (QuotaCalculationService Service, Mock<IMSEStockRecruitment> StockRecruitment, Mock<IMSEQuotaCalculator> QuotaCalculator) CreateServiceWithMocks()
@@ -131,7 +131,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             var (service, stockRecruitment, quotaCalculator) = CreateServiceWithMocks();
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
-            await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
             return (service, stockRecruitment, quotaCalculator);
         }
 
@@ -323,7 +323,7 @@ namespace SURIMI_fisheries_authority.Tests
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
 
             // Act
-            await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
 
             // Assert
             service.m_MSEQuotaData.Should().NotBeNull();
@@ -350,7 +350,7 @@ namespace SURIMI_fisheries_authority.Tests
             });
 
             // Act
-            var act = () => service.CreateRegulationsAsync(summary);
+            var act = () => service.CreateRegulationsAsync(summary, CancellationToken.None);
 
             // Assert
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Duplicate species*");
@@ -363,10 +363,10 @@ namespace SURIMI_fisheries_authority.Tests
             var service = CreateService();
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
             var summary = CreateRegulationSummary();
-            await service.CreateRegulationsAsync(summary);
+            await service.CreateRegulationsAsync(summary, CancellationToken.None);
 
             // Act
-            var act = () => service.CreateRegulationsAsync(summary);
+            var act = () => service.CreateRegulationsAsync(summary, CancellationToken.None);
 
             // Assert
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Simulation with Id sim-1 already has regulations*");
@@ -401,7 +401,7 @@ namespace SURIMI_fisheries_authority.Tests
             var summary = CreateRegulationSummary();
 
             // Act
-            await service.CreateRegulationsAsync(summary);
+            await service.CreateRegulationsAsync(summary, CancellationToken.None);
 
             // Assert
             service.m_MSEQuotaData!.Blim[1].Should().Be(1.0f);
@@ -433,7 +433,7 @@ namespace SURIMI_fisheries_authority.Tests
             };
 
             // Act & Assert
-            var act = () => service.CreateRegulationsAsync(summary);
+            var act = () => service.CreateRegulationsAsync(summary, CancellationToken.None);
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*No recruitment configuration found*");
         }
 
@@ -444,7 +444,7 @@ namespace SURIMI_fisheries_authority.Tests
             var service = CreateService();
 
             // Act & Assert
-            var act = () => service.CreateRegulationsAsync(new RegulationDefinitionsSummary());
+            var act = () => service.CreateRegulationsAsync(new RegulationDefinitionsSummary(), CancellationToken.None);
             await act.Should().ThrowAsync<Exception>();
         }
 
@@ -460,7 +460,7 @@ namespace SURIMI_fisheries_authority.Tests
                 .Setup(qc => qc.DoAssessment(It.IsAny<float[]>(), It.IsAny<int>()))
                 .Callback<float[], int>((b, year) => { assessedBiomass = (float[])b.Clone(); assessedYear = year; });
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
-            await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
             await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
 
             // Act
@@ -517,10 +517,10 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange: CSV lacks species KHE while a quota is defined for it
             var service = CreateServiceWithQuotaShareCsv(
-                "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
-                "PIL;;0,75;0,25;1\n");
+                "species_code,life_stage,ART|ESP,OTB|ESP\n" +
+                "PIL,,0.75,0.25\n");
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
-            await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
             await AssignBiomassAndCatchAsync(service, "PIL", "KHE");
 
             // Act & Assert
@@ -529,35 +529,33 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
-        public async Task GetRegulations_ThrowsWhenQuotaShareSpeciesNotInContract()
+        public async Task CreateRegulations_ThrowsWhenQuotaShareSpeciesNotInContract()
         {
             // Arrange: CSV contains species XXX that is not present in the contract
             var service = CreateServiceWithQuotaShareCsv(
-                "species_code;life_stage;ART,ESP;OTB,ESP;Sum\n" +
-                "PIL;;0,75;0,25;1\n" +
-                "KHE;;0,5;0,5;1\n" +
-                "XXX;;1;;1\n");
+                "species_code,life_stage,ART|ESP,OTB|ESP\n" +
+                "PIL,,0.75,0.25\n" +
+                "KHE,,0.5,0.5\n" +
+                "XXX,,1,\n");
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
-            await service.CreateRegulationsAsync(CreateRegulationSummary());
 
             // Act & Assert
-            var act = () => service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
+            var act = () => service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*XXX*not in contract*");
         }
 
         [Fact]
-        public async Task GetRegulations_ThrowsWhenQuotaShareFleetNotInContract()
+        public async Task CreateRegulations_ThrowsWhenQuotaShareFleetNotInContract()
         {
             // Arrange: CSV contains fleet (TM, FRA) that is not present in the contract
             var service = CreateServiceWithQuotaShareCsv(
-                "species_code;life_stage;ART,ESP;OTB,ESP;TM,FRA;Sum\n" +
-                "PIL;;0,75;0,25;;1\n" +
-                "KHE;;0,5;0,5;;1\n");
+                "species_code,life_stage,ART|ESP,OTB|ESP,TM|FRA\n" +
+                "PIL,,0.75,0.25,\n" +
+                "KHE,,0.5,0.5,\n");
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
-            await service.CreateRegulationsAsync(CreateRegulationSummary());
 
             // Act & Assert
-            var act = () => service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
+            var act = () => service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*TM*not in contract*");
         }
 
@@ -584,7 +582,7 @@ namespace SURIMI_fisheries_authority.Tests
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
 
             // Act
-            await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
 
             // Assert
             // 1-based EwECore indexing: PIL -> group 1, KHE -> group 2
@@ -599,14 +597,14 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange: recruitment file contains species XXX that is not present in the contract
             var service = CreateServiceWithMocks(CreateRecruitmentBlobStore(
-                "species_code;life_stage;RstockRatio;RHalfB0Ratio;cvRec\n" +
-                "PIL;;0,893;0,2;0,8\n" +
-                "KHE;;0,7134952;0,25;0,9\n" +
-                "XXX;;0,5;0,2;0,8\n")).Service;
+                "species_code,life_stage,RstockRatio,RHalfB0Ratio,cvRec\n" +
+                "PIL,,0.893,0.2,0.8\n" +
+                "KHE,,0.7134952,0.25,0.9\n" +
+                "XXX,,0.5,0.2,0.8\n")).Service;
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
 
             // Act & Assert
-            var act = () => service.CreateRegulationsAsync(CreateRegulationSummary());
+            var act = () => service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
             await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*XXX*recruitment file*not in contract*");
         }
 
@@ -617,7 +615,7 @@ namespace SURIMI_fisheries_authority.Tests
             var (service, _, quotaCalculator) = CreateServiceWithMocks();
             quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
-            await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
             await AssignBiomassAndCatchAsync(service, "PIL", "KHE");
 
             // Act
@@ -652,7 +650,7 @@ namespace SURIMI_fisheries_authority.Tests
             {
                 tfm.Species!.SpeciesCode = tfm.Species.SpeciesCode!.ToLowerInvariant();
             }
-            await service.CreateRegulationsAsync(summary);
+            await service.CreateRegulationsAsync(summary, CancellationToken.None);
             await AssignBiomassAndCatchAsync(service, "PIL", "KHE");
 
             // Act
@@ -670,7 +668,7 @@ namespace SURIMI_fisheries_authority.Tests
             var (service, _, quotaCalculator) = CreateServiceWithMocks();
             quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
-            await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
 
             // Act
             var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
@@ -686,7 +684,7 @@ namespace SURIMI_fisheries_authority.Tests
             var (service, _, quotaCalculator) = CreateServiceWithMocks();
             quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
-            await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
             await AssignBiomassAndCatchAsync(service, "PIL");
 
             // Act

@@ -23,20 +23,20 @@ namespace SURIMI_fisheries_authority.Services
             _logger = logger;
         }
 
-        public async Task<StockRecruitmentMap> LoadAsync(string scenarioName)
+        public async Task<StockRecruitmentMap> LoadAsync(string scenarioName, CancellationToken cancellationToken)
         {
-            string fileNamePath = $"{scenarioName}/{scenarioName}{"_recruitment.csv"}";
-            if (!await _blobStore.ExistsAsync(fileNamePath, PathType.Input))
+            string fileNamePath = $"{scenarioName}/{scenarioName}_recruitment.csv";
+            if (!await _blobStore.ExistsAsync(fileNamePath, PathType.Input, cancellationToken))
             {
                 throw new RpcException(new Status(StatusCode.Internal, $"Couldn't find {fileNamePath}"));
             }
 
-            var text = await _blobStore.ReadAllTextAsync(fileNamePath, PathType.Input);
+            var text = await _blobStore.ReadAllTextAsync(fileNamePath, PathType.Input, cancellationToken);
             var lines = text.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
             if (lines.Length == 0)
             {
-                throw new InvalidDataException($"Recruitment file fileNamePath is empty");
+                throw new InvalidDataException($"Recruitment file {fileNamePath} is empty");
             }
 
             ValidateHeader(lines[0], fileNamePath);
