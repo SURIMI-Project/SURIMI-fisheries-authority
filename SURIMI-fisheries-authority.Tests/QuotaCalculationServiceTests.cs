@@ -159,6 +159,15 @@ namespace SURIMI_fisheries_authority.Tests
             };
         }
 
+        private static async Task AssignBiomassAndCatchAsync(QuotaCalculationService service, params string[] speciesCodes)
+        {
+            await service.UpdateBiomassAsync(speciesCodes.Select(code => CreateBiomassGrid(code, 10.0)).ToList());
+            await service.UpdateCatchDispositionAsync(new DateTime(2024, 1, 1), new DateTime(2024, 1, 31), new CatchDispositionSummary
+            {
+                DispositionGrids = speciesCodes.Select(code => CreateGrid(code, "ART", (1.0, 0.0, 0.0))).ToList()
+            });
+        }
+
         [Fact]
         public async Task UpdateCatchDisposition_AggregatesAcrossFleetsIntoSameGroup()
         {
@@ -384,21 +393,6 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
-        public async Task UpdateBiomass_ThrowsWhenSpeciesUnmapped()
-        {
-            // Arrange
-            var service = await CreateInitialisedServiceAsync();
-            var grids = new List<BiomassGrid>
-            {
-                CreateBiomassGrid("XXX", 10.0)
-            };
-
-            // Act & Assert
-            var act = () => service.UpdateBiomassAsync(grids);
-            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*No group found*");
-        }
-
-        [Fact]
         public async Task CreateRegulations_AppliesTargetFishingMortalities()
         {
             // Arrange
@@ -527,6 +521,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "PIL;;0,75;0,25;1\n");
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
             await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await AssignBiomassAndCatchAsync(service, "PIL", "KHE");
 
             // Act & Assert
             var act = () => service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
@@ -623,6 +618,7 @@ namespace SURIMI_fisheries_authority.Tests
             quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
             await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await AssignBiomassAndCatchAsync(service, "PIL", "KHE");
 
             // Act
             var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
@@ -657,6 +653,7 @@ namespace SURIMI_fisheries_authority.Tests
                 tfm.Species!.SpeciesCode = tfm.Species.SpeciesCode!.ToLowerInvariant();
             }
             await service.CreateRegulationsAsync(summary);
+            await AssignBiomassAndCatchAsync(service, "PIL", "KHE");
 
             // Act
             var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
@@ -664,6 +661,40 @@ namespace SURIMI_fisheries_authority.Tests
             // Assert
             regulations.TotalAllowableCatches.Should().HaveCount(4);
             regulations.TotalAllowableCatches!.Select(tac => tac.Species!.SpeciesCode).Distinct().Should().BeEquivalentTo("PIL", "KHE");
+        }
+
+        [Fact]
+        public async Task GetRegulations_EmitsNoTacWhenNoBiomassAndCatch()
+        {
+            // Arrange: neither species has biomass or catches assigned
+            var (service, _, quotaCalculator) = CreateServiceWithMocks();
+            quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
+
+            // Act
+            var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
+
+            // Assert
+            regulations.TotalAllowableCatches.Should().BeEmpty();
+        }
+
+        [Fact]
+        public async Task GetRegulations_SkipsSpeciesWithoutBiomassAndCatch()
+        {
+            // Arrange: only PIL has biomass and catches assigned; KHE must be skipped
+            var (service, _, quotaCalculator) = CreateServiceWithMocks();
+            quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
+            await AssignBiomassAndCatchAsync(service, "PIL");
+
+            // Act
+            var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
+
+            // Assert
+            regulations.TotalAllowableCatches.Should().HaveCount(2);
+            regulations.TotalAllowableCatches!.Select(tac => tac.Species!.SpeciesCode).Distinct().Should().BeEquivalentTo("PIL");
         }
 
         [Fact]

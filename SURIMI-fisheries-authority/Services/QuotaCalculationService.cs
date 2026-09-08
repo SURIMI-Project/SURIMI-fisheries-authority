@@ -167,8 +167,6 @@ namespace SURIMI_fisheries_authority.Services
             m_QuotaShares = await m_quotaShareLoader.LoadAsync(m_ScenarioName);
             ValidateQuotaSharesMatchContract(m_QuotaShares, m_SurimiContract, m_ScenarioName);
 
-
-
             m_quotaCalculator.DoAssessment(m_Biomass, startDateTime.Year);
 
             var quotas = m_quotaCalculator.UpdateQuotas();
@@ -180,6 +178,11 @@ namespace SURIMI_fisheries_authority.Services
             var totalAllowableCatches = new List<TotalAllowableCatch>();
             foreach (var (speciesCode, lifeStage, iGroup) in m_QuotaSpeciesGroupMap.Entries)
             {
+                if(m_IsBiomassAlreadyAssigned[iGroup] == false || m_IsCatchYearGroupAlreadyAssigned[iGroup] == false)
+                {
+                    m_logger.LogInformation($"Skipping quota calculation for species ({speciesCode}, {lifeStage}) in simulation {m_SimulationId} as biomass or catch has not been assigned");
+                    continue; // skip species that have not been assigned biomass and catch, as they are not part of the current simulation
+                }
                 if (!m_QuotaShares.TryGetShares(speciesCode, lifeStage, out var shares))
                 {
                     throw new InvalidOperationException($"No quota shares configured for species ({speciesCode}, {lifeStage}) while a quota is defined in simulation {m_SimulationId}");
