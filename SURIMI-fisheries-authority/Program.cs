@@ -24,7 +24,7 @@ namespace SURIMI_fisheries_authority
                         Environment.GetEnvironmentVariable("AWS_ACCESS_KEY_ID"),
                         Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY"),
                         Environment.GetEnvironmentVariable("AWS_BUCKET_NAME"),
-                        inputBasePrefix: @"fisheries_authority", outputBasePrefix: @"fisheries_authority", localInputRoot: "Includes", localOutputRoot: "Output");
+                        inputBasePrefix: @"fisheries_authority", outputBasePrefix: @"fisheries_authority/output", localInputRoot: "Includes", localOutputRoot: "Output");
                 }
 
                 // Default local Filesystem
@@ -48,6 +48,7 @@ namespace SURIMI_fisheries_authority
             builder.Services.AddScoped<IRandomService, cRandomService>();
             builder.Services.AddScoped<IMSEStockRecruitment, cMSEStockRecruitment>();
             builder.Services.AddScoped<IMSEQuotaCalculator, cMSEQuotaCalculator>();
+            builder.Services.AddScoped<IMseDiagnosticsRecorder, CsvMseDiagnosticsRecorder>();
             builder.Services.AddScoped<IQuotaCalculationService, QuotaCalculationService>();
 
             builder.Logging.ClearProviders();

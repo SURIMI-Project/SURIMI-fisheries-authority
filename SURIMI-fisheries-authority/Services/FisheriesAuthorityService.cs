@@ -75,7 +75,7 @@ namespace SURIMI_fisheries_authority.Services
                 var quotaCalculationService = m_simulationScopeManager.GetService(request.SimulationId);
                 try
                 {
-                    await quotaCalculationService.FinaliseSimulationAsync();
+                    await quotaCalculationService.FinaliseSimulationAsync(context.CancellationToken);
                 }
                 finally
                 {
@@ -99,7 +99,7 @@ namespace SURIMI_fisheries_authority.Services
                 var quotaCalculationService = m_simulationScopeManager.GetService(request.SimulationId);
                 try
                 {
-                    await quotaCalculationService.CancelSimulationAsync();
+                    await quotaCalculationService.CancelSimulationAsync(context.CancellationToken);
                 }
                 finally
                 {
@@ -223,7 +223,7 @@ namespace SURIMI_fisheries_authority.Services
             try
             {
                 var biomassGrids = GetBiomassGrids(request.BiomassSummary);
-                await m_simulationScopeManager.GetService(request.SimulationId).UpdateBiomassAsync(biomassGrids);
+                await m_simulationScopeManager.GetService(request.SimulationId).UpdateBiomassAsync(request.DateTime.ToDateTime(), biomassGrids);
                 return new UpdateBiomassResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
