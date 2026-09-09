@@ -18,30 +18,14 @@ namespace SURIMI_fisheries_authority.Services
             _version = protocolVersionService.LoadVersion();
         }
 
-        public override async Task<UpdateCatchDispositionResponse> UpdateCatchDisposition(UpdateCatchDispositionRequest request, ServerCallContext context)
-        {
-            m_logger.LogInformation($"Received UpdateCatchDisposition request for simulation {request.SimulationId}");
-            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
-
-            try
-            {
-                var catchDispositionSummary = GetCatchDispositionSummary(request.CatchDispositionSummary);
-                await m_simulationScopeManager.GetService(request.SimulationId).UpdateCatchDispositionAsync(request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), catchDispositionSummary);
-
-                return new UpdateCatchDispositionResponse() { SimulationId = request.SimulationId };
-            }
-            catch (Exception ex)
-            {
-                m_logger.LogError(ex, $"Error during UpdateCatchDisposition for simulation {request.SimulationId}");
-                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-            }
-        }
-
+        /// <summary>
+        /// Initializes a simulation with the given scenario name and simulation contract. Creates a new simulation scope for the specified simulation ID and calls the InitialiseSimulationAsync method of the quota calculation service.
+        /// </summary>
         public override async Task<InitialiseSimulationResponse> InitialiseSimulation(InitialiseSimulationRequest request, ServerCallContext context)
         {
             GrpcValidation.ArgumentNotNullOrEmpty(request.ScenarioName);
 
-            m_logger.LogInformation($"Initializing simulation {request.SimulationId}, with scenario {request.ScenarioName}...");
+            m_logger.LogInformation("Initializing simulation {SimulationId}, with scenario {ScenarioName}...", request.SimulationId, request.ScenarioName);
 
             try
             {
@@ -61,14 +45,17 @@ namespace SURIMI_fisheries_authority.Services
             }
             catch (Exception ex)
             {
-                m_logger.LogError(ex, $"Error during InitialiseSimulation for simulation {request.SimulationId}");
+                m_logger.LogError(ex, "Error during InitialiseSimulation for simulation {SimulationId}", request.SimulationId);
                 throw new RpcException(new Status(StatusCode.Internal, ex.Message));
             }
         }
 
+        /// <summary>
+        /// Finalizes a simulation by calling the FinaliseSimulationAsync method of the quota calculation service for the specified simulation ID. Removes the simulation scope after finalization.
+        /// </summary>
         public override async Task<FinaliseSimulationResponse> FinaliseSimulation(FinaliseSimulationRequest request, ServerCallContext context)
         {
-            m_logger.LogInformation($"Finalizing simulation {request.SimulationId}");
+            m_logger.LogInformation("Finalizing simulation {SimulationId}", request.SimulationId);
 
             try
             {
@@ -85,14 +72,17 @@ namespace SURIMI_fisheries_authority.Services
             }
             catch (Exception ex)
             {
-                m_logger.LogError(ex, $"Error during FinaliseSimulation for simulation {request.SimulationId}");
+                m_logger.LogError(ex, "Error during FinaliseSimulation for simulation {SimulationId}", request.SimulationId);
                 throw new RpcException(new Status(StatusCode.Internal, ex.Message));
             }
         }
 
+        /// <summary>
+        /// Cancels a simulation by calling the CancelSimulationAsync method of the quota calculation service for the specified simulation ID. Removes the simulation scope after cancellation.
+        /// </summary>
         public override async Task<CancelSimulationResponse> CancelSimulation(CancelSimulationRequest request, ServerCallContext context)
         {
-            m_logger.LogInformation($"Cancel simulation {request.SimulationId}");
+            m_logger.LogInformation("Cancel simulation {SimulationId}", request.SimulationId);
 
             try
             {
@@ -109,35 +99,81 @@ namespace SURIMI_fisheries_authority.Services
             }
             catch (Exception ex)
             {
-                m_logger.LogError(ex, $"Error during CancelSimulation for simulation {request.SimulationId}");
+                m_logger.LogError(ex, "Error during CancelSimulation for simulation {SimulationId}", request.SimulationId);
                 throw new RpcException(new Status(StatusCode.Internal, ex.Message));
             }
         }
 
-        public override async Task<SimulateStepResponse> SimulateStep(SimulateStepRequest request, ServerCallContext context)
+        /// <summary>
+        /// Updates the biomass data for a simulation by calling the UpdateBiomassAsync method of the quota calculation service for the specified simulation ID. 
+        /// </summary>
+        public override async Task<UpdateBiomassResponse> UpdateBiomass(UpdateBiomassRequest request, ServerCallContext context)
         {
-            m_logger.LogInformation($"Simulate step for simulation {request.SimulationId}");
+            m_logger.LogInformation("Received UpdateBiomass request for simulation {SimulationId}", request.SimulationId);
+            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
 
             try
             {
-                await m_simulationScopeManager.GetService(request.SimulationId).SimulateStepAsync();
-                return new SimulateStepResponse() { SimulationId = request.SimulationId };
+                var biomassGrids = GetBiomassGrids(request.BiomassSummary);
+                await m_simulationScopeManager.GetService(request.SimulationId).UpdateBiomassAsync(request.DateTime.ToDateTime(), biomassGrids);
+                return new UpdateBiomassResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
             {
-                m_logger.LogError(ex, $"Error during SimulateStep for simulation {request.SimulationId}");
+                m_logger.LogError(ex, "Error during UpdateBiomass for simulation {SimulationId}", request.SimulationId);
                 throw new RpcException(new Status(StatusCode.Internal, ex.Message));
             }
         }
 
-        public override Task<GetProtocolVersionResponse> GetProtocolVersion(GetProtocolVersionRequest request, ServerCallContext context)
+        /// <summary>
+        /// Updates the catch disposition data for a simulation by calling the UpdateCatchDispositionAsync method of the quota calculation service for the specified simulation ID.
+        /// </summary>
+        public override async Task<UpdateCatchDispositionResponse> UpdateCatchDisposition(UpdateCatchDispositionRequest request, ServerCallContext context)
         {
-            return Task.FromResult(new GetProtocolVersionResponse() { ProtocolVersion = _version });
+            m_logger.LogInformation("Received UpdateCatchDisposition request for simulation {SimulationId}", request.SimulationId);
+            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
+
+            try
+            {
+                var catchDispositionSummary = GetCatchDispositionSummary(request.CatchDispositionSummary);
+                await m_simulationScopeManager.GetService(request.SimulationId).UpdateCatchDispositionAsync(request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), catchDispositionSummary);
+
+                return new UpdateCatchDispositionResponse() { SimulationId = request.SimulationId };
+            }
+            catch (Exception ex)
+            {
+                m_logger.LogError(ex, "Error during UpdateCatchDisposition for simulation {SimulationId}", request.SimulationId);
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+            }
         }
 
+        /// <summary>
+        /// Creates regulations for a simulation by calling the CreateRegulationsAsync method of the quota calculation service for the specified simulation ID. 
+        /// </summary>
+        public override async Task<CreateRegulationsResponse> CreateRegulations(CreateRegulationsRequest request, ServerCallContext context)
+        {
+            m_logger.LogInformation("Received CreateRegulations request for simulation {SimulationId}", request.SimulationId);
+            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
+
+            try
+            {
+                var regulationDefinitionsSummary = GetRegulationDefinitionsSummary(request.RegulationsSummary);
+                await m_simulationScopeManager.GetService(request.SimulationId).CreateRegulationsAsync(regulationDefinitionsSummary, context.CancellationToken);
+                return new CreateRegulationsResponse() { SimulationId = request.SimulationId };
+            }
+            catch (Exception ex)
+            {
+                m_logger.LogError(ex, "Error during CreateRegulations for simulation {SimulationId}", request.SimulationId);
+                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
+            }
+        }
+
+        /// <summary>
+        /// Calculates and returns the quotas (TAC) for a simulation by calling the GetRegulationsAsync method of the quota calculation service for the specified simulation ID.
+        /// </summary>
         public override async Task<GetRegulationsResponse> GetRegulations(GetRegulationsRequest request, ServerCallContext context)
         {
-            m_logger.LogInformation($"Received GetRegulations request for simulation {request.SimulationId}");
+            m_logger.LogInformation("Received GetRegulations request for simulation {SimulationId}", request.SimulationId);
             GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
 
             try
@@ -174,63 +210,17 @@ namespace SURIMI_fisheries_authority.Services
             }
             catch (Exception ex)
             {
-                m_logger.LogError(ex, $"Error during GetRegulations for simulation {request.SimulationId}");
+                m_logger.LogError(ex, "Error during GetRegulations for simulation {SimulationId}", request.SimulationId);
                 throw new RpcException(new Status(StatusCode.Internal, ex.Message));
             }
         }
 
-        public override async Task<UpdateFishingActivityResponse> UpdateFishingActivity(UpdateFishingActivityRequest request, ServerCallContext context)
+        /// <summary>
+        /// Returns the protocol version of the service.
+        /// </summary>
+        public override Task<GetProtocolVersionResponse> GetProtocolVersion(GetProtocolVersionRequest request, ServerCallContext context)
         {
-            m_logger.LogInformation($"Received UpdateFishingActivity request for simulation {request.SimulationId}");
-            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
-
-            try
-            {
-                var fishingActivitySummary = GetFishingActivitySummary(request.FishingActivitySummary);
-                await m_simulationScopeManager.GetService(request.SimulationId).UpdateFishingActivityAsync(request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), fishingActivitySummary);
-                return new UpdateFishingActivityResponse() { SimulationId = request.SimulationId };
-            }
-            catch (Exception ex)
-            {
-                m_logger.LogError(ex, $"Error during UpdateFishingActivity for simulation {request.SimulationId}");
-                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-            }
-        }
-
-        public override async Task<CreateRegulationsResponse> CreateRegulations(CreateRegulationsRequest request, ServerCallContext context)
-        {
-            m_logger.LogInformation($"Received CreateRegulations request for simulation {request.SimulationId}");
-            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
-
-            try
-            {
-                var regulationDefinitionsSummary = GetRegulationDefinitionsSummary(request.RegulationsSummary);
-                await m_simulationScopeManager.GetService(request.SimulationId).CreateRegulationsAsync(regulationDefinitionsSummary, context.CancellationToken);
-                return new CreateRegulationsResponse() { SimulationId = request.SimulationId };
-            }
-            catch (Exception ex)
-            {
-                m_logger.LogError(ex, $"Error during CreateRegulations for simulation {request.SimulationId}");
-                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-            }
-        }
-
-        public override async Task<UpdateBiomassResponse> UpdateBiomass(UpdateBiomassRequest request, ServerCallContext context)
-        {
-            m_logger.LogInformation($"Received UpdateBiomass request for simulation {request.SimulationId}");
-            GrpcValidation.ArgumentNotNullOrEmpty(request.SimulationId);
-
-            try
-            {
-                var biomassGrids = GetBiomassGrids(request.BiomassSummary);
-                await m_simulationScopeManager.GetService(request.SimulationId).UpdateBiomassAsync(request.DateTime.ToDateTime(), biomassGrids);
-                return new UpdateBiomassResponse() { SimulationId = request.SimulationId };
-            }
-            catch (Exception ex)
-            {
-                m_logger.LogError(ex, $"Error during UpdateBiomass for simulation {request.SimulationId}");
-                throw new RpcException(new Status(StatusCode.Internal, ex.Message));
-            }
+            return Task.FromResult(new GetProtocolVersionResponse() { ProtocolVersion = _version });
         }
 
         /// <summary>
@@ -280,25 +270,6 @@ namespace SURIMI_fisheries_authority.Services
                                 DeadDiscardsBiomass = grpcCell.DeadDiscards
                             })
                             .ToList()
-                    })
-                    .ToList()
-            };
-        }
-
-        /// <summary>
-        /// Mapping method from gRPC Surimi FishingActivitySummary to SURIMI Datamodel FishingActivitySummary
-        /// </summary>
-        /// <param name="fishingActivitySummary"></param>
-        /// <returns></returns>
-        private static SURIMI.Datamodel.FishingActivitySummary GetFishingActivitySummary(FishingActivitySummary fishingActivitySummary)
-        {
-            return new SURIMI.Datamodel.FishingActivitySummary
-            {
-                FishingActivities = fishingActivitySummary.FishingActivities
-                    .Select(activity => new SURIMI.Datamodel.FishingActivity
-                    {
-                        FleetSegment = GetFleetSegment(activity.FleetSegment),
-                        FishingActivityRatio = activity.FishingActivityRatio
                     })
                     .ToList()
             };
@@ -445,10 +416,16 @@ namespace SURIMI_fisheries_authority.Services
                             MarketCode = c.MarketCode,
                         })
                         .ToList(),
-                    Price_Categories = simulation.Items.PriceCategories
+                    PriceCategories = simulation.Items.PriceCategories
                         .Select(c => new SURIMI.Datamodel.PriceCategory
                         {
                             CategoryCode = c.CategoryCode,
+                        })
+                        .ToList(),
+                    ClimateScenarios = simulation.Items.ClimateScenarios
+                        .Select(c => new SURIMI.Datamodel.ClimateScenario
+                        {
+                            ClimateScenarioCode = c.ClimateScenarioCode,
                         })
                         .ToList()
                 }

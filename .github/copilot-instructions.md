@@ -8,7 +8,7 @@
 ## Coding conventions
 - Follow the existing patterns in `QuotaCalculationService`: resolve species to 1-based EwECore group indices via `SpeciesGroupMap.TryGetGroupIndex`, log a warning and skip unmapped species, keep `applied`/`skipped` counters, and finish with an information log.
 - EwECore arrays are 1-based with inclusive sizing: allocate `nGroups + 1` elements and ignore index 0.
-- Use string interpolation in log messages, `m_` prefix for private instance fields, and nullable reference types (`<Nullable>enable</Nullable>`).
+- Use structured logging message templates with PascalCase named placeholders and value arguments (e.g., `m_logger.LogInformation("Initialized simulation {SimulationId}", simulationId)`); do not use interpolated strings in log messages (CA2254). Use `m_` prefix for private instance fields, and nullable reference types (`<Nullable>enable</Nullable>`).
 - Guard operational methods with an `InvalidOperationException` when the simulation is not initialised.
 - Async methods that perform I/O (blob storage, loaders, service operations) accept a `CancellationToken` parameter and pass it through to all awaited calls; gRPC endpoints forward `context.CancellationToken`.
 - Only add comments when they explain domain logic (e.g., discard survival, index conventions).
