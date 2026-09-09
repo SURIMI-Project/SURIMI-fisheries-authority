@@ -94,7 +94,9 @@ namespace SURIMI_fisheries_authority.Tests
                         new FleetSegment { GearCode = "ART", CountryCode = "ESP" },
                         new FleetSegment { GearCode = "OTB", CountryCode = "ESP" }
                     ]
-                }
+                },
+                Standards = new Standards(),
+                Simulation = new Simulation()
             };
         }
 
@@ -221,8 +223,8 @@ namespace SURIMI_fisheries_authority.Tests
             await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("XXX", 50.0), CreateBiomassGrid("PIL", 100.0)]);
 
             // Assert
-            service.m_Biomass[1].Should().Be(100.0f);
-            service.m_Biomass[2].Should().Be(0.0f);
+            service.Biomass[1].Should().Be(100.0f);
+            service.Biomass[2].Should().Be(0.0f);
             service.m_MSEQuotaData!.Bestimate[1].Should().Be(100.0f);
             service.m_MSEQuotaData.Bestimate[2].Should().Be(0.0f);
         }
@@ -330,7 +332,7 @@ namespace SURIMI_fisheries_authority.Tests
             service.m_MSEQuotaData.Should().NotBeNull();
             service.m_MSEQuotaData!.nGroups.Should().Be(2);
             service.m_MSEQuotaData.nFleets.Should().Be(2);
-            service.m_Biomass.Should().HaveCount(3); // nGroups + 1 for 1-based EwECore indexing
+            service.Biomass.Should().HaveCount(3); // nGroups + 1 for 1-based EwECore indexing
             stockRecruitment.VerifySet(sr => sr.Data = service.m_MSEQuotaData, Times.Once);
             quotaCalculator.VerifySet(qc => qc.Data = service.m_MSEQuotaData, Times.Once);
         }
@@ -389,8 +391,8 @@ namespace SURIMI_fisheries_authority.Tests
             await service.UpdateBiomassAsync(DateTime.MinValue, grids);
 
             // Assert
-            service.m_Biomass[1].Should().Be(17.0f);
-            service.m_Biomass[2].Should().Be(3.0f);
+            service.Biomass[1].Should().Be(17.0f);
+            service.Biomass[2].Should().Be(3.0f);
         }
 
         [Fact]
@@ -485,7 +487,7 @@ namespace SURIMI_fisheries_authority.Tests
             await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
 
             // Assert
-            service.m_Biomass.Should().OnlyContain(v => v == 0.0f);
+            service.Biomass.Should().OnlyContain(v => v == 0.0f);
         }
 
         [Fact]
@@ -719,7 +721,7 @@ namespace SURIMI_fisheries_authority.Tests
 
             // Assert
             // Recruitment CSV: PIL RstockRatio = 0.893, RHalfB0Ratio = 0.2; seeded values are based on the first biomass only
-            service.m_Biomass[1].Should().Be(15.0f);
+            service.Biomass[1].Should().Be(15.0f);
             service.m_MSEQuotaData!.Bestimate[1].Should().Be(10.0f);
             service.m_MSEQuotaData.BhalfT[1].Should().Be(0.2f * 10.0f);
             service.m_MSEQuotaData.Rmax[1].Should().Be(0.893f * 10.0f * (0.2f + 1.0f));

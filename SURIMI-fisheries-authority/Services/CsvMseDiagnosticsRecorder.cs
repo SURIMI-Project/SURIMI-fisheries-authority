@@ -102,7 +102,7 @@ namespace SURIMI_fisheries_authority.Services
             await UploadIfNotEmptyAsync($"{simulationId}_mse-assessment.csv", m_yearRows, cancellationToken);
             await UploadIfNotEmptyAsync($"{simulationId}_tac.csv", m_tacRows, cancellationToken);
 
-            m_logger.LogInformation($"Wrote MSE diagnostics for simulation {simulationId} to blob store");
+            m_logger.LogInformation("Wrote MSE diagnostics for simulation {SimulationId} to blob store", simulationId);
 
         }
 

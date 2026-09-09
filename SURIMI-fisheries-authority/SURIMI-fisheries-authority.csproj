@@ -10,7 +10,7 @@
   </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="BSR.Surimi.Surimi-Protocol.Grpc.Csharp" Version="1.82.10101.83+2a653bbe4cea" />
+        <PackageReference Include="BSR.Surimi.Surimi-Protocol.Grpc.Csharp" Version="1.83.10103.87+d688d42c344c" />
         <PackageReference Include="Eii.BlobStore.S3" Version="1.0.*" />
         <PackageReference Include="Eii.Ecopath.EwECore" Version="6.7.94-MSE.2" />
         <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.80.0" />

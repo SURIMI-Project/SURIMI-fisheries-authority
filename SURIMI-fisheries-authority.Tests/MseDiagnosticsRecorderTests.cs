@@ -226,7 +226,9 @@ namespace SURIMI_fisheries_authority.Tests
                         new FleetSegment { GearCode = "ART", CountryCode = "ESP" },
                         new FleetSegment { GearCode = "OTB", CountryCode = "ESP" }
                     ]
-                }
+                },
+                Standards = new Standards(),
+                Simulation = new Simulation() 
             };
         }
 
