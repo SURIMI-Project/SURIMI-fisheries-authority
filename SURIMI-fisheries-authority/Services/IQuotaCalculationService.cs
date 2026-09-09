@@ -6,9 +6,9 @@ namespace SURIMI_fisheries_authority.Services
     {
         Task InitialiseSimulationAsync(string simulationId, string scenarioName, SurimiContract surimiContract);
         Task SimulateStepAsync();
-        Task FinaliseSimulationAsync();
-        Task CancelSimulationAsync();
-        Task UpdateBiomassAsync(List<BiomassGrid> biomassGrids);
+        Task FinaliseSimulationAsync(CancellationToken cancellationToken);
+        Task CancelSimulationAsync(CancellationToken cancellationToken);
+        Task UpdateBiomassAsync(DateTime dateTime, List<BiomassGrid> biomassGrids);
         Task UpdateCatchDispositionAsync(DateTime startDateTime, DateTime endDateTime, CatchDispositionSummary catchDispositionSummary);
         Task UpdateFishingActivityAsync(DateTime startDateTime, DateTime endDateTime, FishingActivitySummary fishingActivitySummary);
         Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary, CancellationToken cancellationToken);

@@ -70,7 +70,8 @@ namespace SURIMI_fisheries_authority.Tests
                 stockRecruitment.Object,
                 quotaCalculator.Object,
                 new QuotaShareLoader(CreateMatchingQuotaShareBlobStore(), NullLogger<QuotaShareLoader>.Instance),
-                new RecruitmentLoader(recruitmentBlobStore, NullLogger<RecruitmentLoader>.Instance));
+                new RecruitmentLoader(recruitmentBlobStore, NullLogger<RecruitmentLoader>.Instance),
+                new Mock<IMseDiagnosticsRecorder>().Object);
 
             return (service, stockRecruitment, quotaCalculator);
         }
@@ -161,7 +162,7 @@ namespace SURIMI_fisheries_authority.Tests
 
         private static async Task AssignBiomassAndCatchAsync(QuotaCalculationService service, params string[] speciesCodes)
         {
-            await service.UpdateBiomassAsync(speciesCodes.Select(code => CreateBiomassGrid(code, 10.0)).ToList());
+            await service.UpdateBiomassAsync(DateTime.MinValue, speciesCodes.Select(code => CreateBiomassGrid(code, 10.0)).ToList());
             await service.UpdateCatchDispositionAsync(new DateTime(2024, 1, 1), new DateTime(2024, 1, 31), new CatchDispositionSummary
             {
                 DispositionGrids = speciesCodes.Select(code => CreateGrid(code, "ART", (1.0, 0.0, 0.0))).ToList()
@@ -173,7 +174,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
-            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 100.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 100.0)]);
             var summary = new CatchDispositionSummary
             {
                 DispositionGrids =
@@ -196,7 +197,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
-            await service.UpdateBiomassAsync([CreateBiomassGrid("KHE", 100.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("KHE", 100.0)]);
             var summary = new CatchDispositionSummary
             {
                 DispositionGrids = [CreateGrid("KHE", "OTB", (10.0, 3.0, 2.0))]
@@ -217,7 +218,7 @@ namespace SURIMI_fisheries_authority.Tests
             var service = await CreateInitialisedServiceAsync();
 
             // Act
-            await service.UpdateBiomassAsync([CreateBiomassGrid("XXX", 50.0), CreateBiomassGrid("PIL", 100.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("XXX", 50.0), CreateBiomassGrid("PIL", 100.0)]);
 
             // Assert
             service.m_Biomass[1].Should().Be(100.0f);
@@ -231,7 +232,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
-            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 100.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 100.0)]);
             var summary = new CatchDispositionSummary
             {
                 DispositionGrids =
@@ -254,7 +255,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
-            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 100.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 100.0)]);
 
             // Act
             await service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, new CatchDispositionSummary
@@ -286,7 +287,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
-            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 100.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 100.0)]);
             await service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, new CatchDispositionSummary
             {
                 DispositionGrids = [CreateGrid("PIL", "ART", (10.0, 0.0, 0.0))]
@@ -385,7 +386,7 @@ namespace SURIMI_fisheries_authority.Tests
             };
 
             // Act
-            await service.UpdateBiomassAsync(grids);
+            await service.UpdateBiomassAsync(DateTime.MinValue, grids);
 
             // Assert
             service.m_Biomass[1].Should().Be(17.0f);
@@ -461,7 +462,7 @@ namespace SURIMI_fisheries_authority.Tests
                 .Callback<float[], int>((b, year) => { assessedBiomass = (float[])b.Clone(); assessedYear = year; });
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
             await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
-            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 10.0)]);
 
             // Act
             await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
@@ -478,7 +479,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
-            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 10.0)]);
 
             // Act
             await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
@@ -509,7 +510,8 @@ namespace SURIMI_fisheries_authority.Tests
                 stockRecruitment.Object,
                 quotaCalculator.Object,
                 new QuotaShareLoader(CreateQuotaShareBlobStore(csvContent), NullLogger<QuotaShareLoader>.Instance),
-                new RecruitmentLoader(CreateMatchingRecruitmentBlobStore(), NullLogger<RecruitmentLoader>.Instance));
+                new RecruitmentLoader(CreateMatchingRecruitmentBlobStore(), NullLogger<RecruitmentLoader>.Instance),
+                new Mock<IMseDiagnosticsRecorder>().Object);
         }
 
         [Fact]
@@ -712,8 +714,8 @@ namespace SURIMI_fisheries_authority.Tests
             var service = await CreateInitialisedServiceAsync();
 
             // Act
-            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
-            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 5.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 10.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 5.0)]);
 
             // Assert
             // Recruitment CSV: PIL RstockRatio = 0.893, RHalfB0Ratio = 0.2; seeded values are based on the first biomass only
@@ -728,7 +730,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
-            await service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 10.0)]);
 
             // Act
             await service.UpdateCatchDispositionAsync(DateTime.MinValue, DateTime.MaxValue, new CatchDispositionSummary
@@ -768,7 +770,7 @@ namespace SURIMI_fisheries_authority.Tests
             var service = CreateService();
 
             // Act & Assert
-            var act = () => service.UpdateBiomassAsync([CreateBiomassGrid("PIL", 10.0)]);
+            var act = () => service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 10.0)]);
             await act.Should().ThrowAsync<InvalidOperationException>();
         }
     }
