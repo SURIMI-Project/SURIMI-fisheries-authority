@@ -4,7 +4,7 @@ namespace SURIMI_fisheries_authority.Services
 {
     public interface IMseDiagnosticsRecorder
     {
-        void RecordMonthlyBiomass(string simulationId, DateTime periodStart, string speciesCode, string lifeStage, int iGroup, float monthBiomass, float accumulatedBiomass);
+        void RecordMonthlyBiomass(string simulationId, DateTime periodStart, string speciesCode, string lifeStage, int iGroup, float monthBiomass);
 
         void RecordMonthlyCatch(string simulationId, DateTime periodStart, string speciesCode, string lifeStage, int iGroup, float monthLandings, float accumulatedCatchYearGroup);
 

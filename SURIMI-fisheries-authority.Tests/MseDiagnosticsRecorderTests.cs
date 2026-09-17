@@ -18,12 +18,14 @@ namespace SURIMI_fisheries_authority.Tests
             // Arrange
             var (service, diagnostics) = await CreateInitialisedServiceAsync();
             var period = new DateTime(2024, 3, 1);
+            // The first call seeds Bestimate/BhalfT/Rmax and is not recorded as a monthly diagnostic
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 0.0)]);
 
             // Act
             await service.UpdateBiomassAsync(period, [CreateBiomassGrid("PIL", 10.0, 5.0)]);
 
             // Assert
-            diagnostics.Verify(d => d.RecordMonthlyBiomass("sim-1", period, "PIL", "", 1, 15.0f, 15.0f), Times.Once);
+            diagnostics.Verify(d => d.RecordMonthlyBiomass("sim-1", period, "PIL", "", 1, 15.0f), Times.Once);
         }
 
         [Fact]
@@ -133,7 +135,7 @@ namespace SURIMI_fisheries_authority.Tests
                 })
                 .Returns(Task.CompletedTask);
             var recorder = new CsvMseDiagnosticsRecorder(NullLogger<CsvMseDiagnosticsRecorder>.Instance, blobStore.Object);
-            recorder.RecordMonthlyBiomass("sim-1", new DateTime(2024, 3, 1), "PIL", "", 1, 10.5f, 25.5f);
+            recorder.RecordMonthlyBiomass("sim-1", new DateTime(2024, 3, 1), "PIL", "", 1, 10.5f);
             recorder.RecordMonthlyCatch("sim-1", new DateTime(2024, 3, 1), "PIL", "", 1, 2.5f, 7.5f);
             recorder.RecordTac("sim-1", 2024, "PIL", "", "ART", "ESP", 0.75f, 75.5f);
 
@@ -141,20 +143,20 @@ namespace SURIMI_fisheries_authority.Tests
             await recorder.FlushAsync("sim-1", CancellationToken.None);
 
             // Assert
-            var biomassLines = uploads["sim-1_biomass-monthly.csv"].Split(Environment.NewLine);
-            biomassLines[0].Should().Be("simulation_id,year,month,species_code,life_stage,group,MonthBiomass,AccumulatedBiomass");
-            biomassLines[1].Should().Be("sim-1,2024,3,PIL,,1,10.5,25.5");
+            var biomassLines = uploads["sim-1/sim-1_biomass-monthly.csv"].Split(Environment.NewLine);
+            biomassLines[0].Should().Be("simulation_id,year,month,species_code,life_stage,group,MonthBiomass");
+            biomassLines[1].Should().Be("sim-1,2024,3,PIL,,1,10.5");
 
-            var catchLines = uploads["sim-1_catch-monthly.csv"].Split(Environment.NewLine);
+            var catchLines = uploads["sim-1/sim-1_catch-monthly.csv"].Split(Environment.NewLine);
             catchLines[0].Should().Be("simulation_id,year,month,species_code,life_stage,group,MonthLandings,AccumulatedCatchYearGroup");
             catchLines[1].Should().Be("sim-1,2024,3,PIL,,1,2.5,7.5");
 
-            var tacLines = uploads["sim-1_tac.csv"].Split(Environment.NewLine);
+            var tacLines = uploads["sim-1/sim-1_tac.csv"].Split(Environment.NewLine);
             tacLines[0].Should().Be("simulation_id,year,species_code,life_stage,gear_code,country_code,share,TAC");
             tacLines[1].Should().Be("sim-1,2024,PIL,,ART,ESP,0.75,75.5");
 
             // No yearly rows were recorded, so no assessment file is uploaded
-            uploads.Should().NotContainKey("sim-1_mse-assessment.csv");
+            uploads.Should().NotContainKey("sim-1/sim-1_mse-assessment.csv");
         }
 
         private static async Task<(QuotaCalculationService Service, Mock<IMseDiagnosticsRecorder> Diagnostics)> CreateInitialisedServiceAsync(float[]? quotas = null)
