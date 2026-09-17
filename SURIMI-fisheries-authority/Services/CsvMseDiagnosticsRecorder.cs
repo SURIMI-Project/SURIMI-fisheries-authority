@@ -20,11 +20,11 @@ namespace SURIMI_fisheries_authority.Services
             m_blobStore = blobStore;
         }
 
-        public void RecordMonthlyBiomass(string simulationId, DateTime periodStart, string speciesCode, string lifeStage, int iGroup, float monthBiomass, float accumulatedBiomass)
+        public void RecordMonthlyBiomass(string simulationId, DateTime periodStart, string speciesCode, string lifeStage, int iGroup, float monthBiomass)
         {
             if (m_monthlyBiomassRows.Length == 0)
             {
-                m_monthlyBiomassRows.AppendLine("simulation_id,year,month,species_code,life_stage,group,MonthBiomass,AccumulatedBiomass");
+                m_monthlyBiomassRows.AppendLine("simulation_id,year,month,species_code,life_stage,group,MonthBiomass");
             }
             m_monthlyBiomassRows.AppendLine(string.Join(',',
                 simulationId,
@@ -33,8 +33,7 @@ namespace SURIMI_fisheries_authority.Services
                 speciesCode,
                 lifeStage,
                 iGroup.ToString(CultureInfo.InvariantCulture),
-                monthBiomass.ToString(CultureInfo.InvariantCulture),
-                accumulatedBiomass.ToString(CultureInfo.InvariantCulture)));
+                monthBiomass.ToString(CultureInfo.InvariantCulture)));
         }
 
         public void RecordMonthlyCatch(string simulationId, DateTime periodStart, string speciesCode, string lifeStage, int iGroup, float monthLandings, float accumulatedCatchYearGroup)
@@ -97,21 +96,22 @@ namespace SURIMI_fisheries_authority.Services
 
         public async Task FlushAsync(string simulationId, CancellationToken cancellationToken)
         {
-            await UploadIfNotEmptyAsync($"{simulationId}_biomass-monthly.csv", m_monthlyBiomassRows, cancellationToken);
-            await UploadIfNotEmptyAsync($"{simulationId}_catch-monthly.csv", m_monthlyCatchRows, cancellationToken);
-            await UploadIfNotEmptyAsync($"{simulationId}_mse-assessment.csv", m_yearRows, cancellationToken);
-            await UploadIfNotEmptyAsync($"{simulationId}_tac.csv", m_tacRows, cancellationToken);
+            await UploadIfNotEmptyAsync(simulationId, $"{simulationId}_biomass-monthly.csv", m_monthlyBiomassRows, cancellationToken);
+            await UploadIfNotEmptyAsync(simulationId, $"{simulationId}_catch-monthly.csv", m_monthlyCatchRows, cancellationToken);
+            await UploadIfNotEmptyAsync(simulationId, $"{simulationId}_mse-assessment.csv", m_yearRows, cancellationToken);
+            await UploadIfNotEmptyAsync(simulationId, $"{simulationId}_tac.csv", m_tacRows, cancellationToken);
 
             m_logger.LogInformation("Wrote MSE diagnostics for simulation {SimulationId} to blob store", simulationId);
 
         }
 
-        private async Task UploadIfNotEmptyAsync(string key, StringBuilder rows, CancellationToken cancellationToken)
+        private async Task UploadIfNotEmptyAsync(string simulationId, string fileName, StringBuilder rows, CancellationToken cancellationToken)
         {
             if (rows.Length == 0)
             {
                 return;
             }
+            var key = $"{simulationId}/{fileName}";
             using var content = new MemoryStream(Encoding.UTF8.GetBytes(rows.ToString()));
             await m_blobStore.UploadAsync(key, PathType.Output, content, "text/csv", ct: cancellationToken);
         }

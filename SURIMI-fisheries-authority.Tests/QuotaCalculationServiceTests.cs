@@ -376,7 +376,7 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
-        public async Task UpdateBiomass_AggregatesCellsIntoGroups()
+        public async Task UpdateBiomass_OverwritesGroupWithLatestGridWhenSpeciesAppearsTwice()
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
@@ -391,7 +391,8 @@ namespace SURIMI_fisheries_authority.Tests
             await service.UpdateBiomassAsync(DateTime.MinValue, grids);
 
             // Assert
-            service.Biomass[1].Should().Be(17.0f);
+            // Biomass is overwritten (not accumulated), so the last grid for a species wins; cells within a single grid are still summed
+            service.Biomass[1].Should().Be(2.0f);
             service.Biomass[2].Should().Be(3.0f);
         }
 
@@ -477,7 +478,7 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
-        public async Task GetRegulations_ClearsBiomass()
+        public async Task GetRegulations_DoesNotClearBiomass()
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
@@ -487,7 +488,8 @@ namespace SURIMI_fisheries_authority.Tests
             await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
 
             // Assert
-            service.Biomass.Should().OnlyContain(v => v == 0.0f);
+            // Biomass is overwritten each month rather than accumulated, so it is not reset at year-end
+            service.Biomass[1].Should().Be(10.0f);
         }
 
         [Fact]
@@ -568,6 +570,7 @@ namespace SURIMI_fisheries_authority.Tests
         {
             // Arrange
             var service = await CreateInitialisedServiceAsync();
+            await service.UpdateBiomassAsync(DateTime.MinValue, [CreateBiomassGrid("PIL", 100.0)]);
 
             // Act
             await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
@@ -666,25 +669,23 @@ namespace SURIMI_fisheries_authority.Tests
         }
 
         [Fact]
-        public async Task GetRegulations_EmitsNoTacWhenNoBiomassAndCatch()
+        public async Task GetRegulations_ThrowsWhenNoBiomassEverAssigned()
         {
-            // Arrange: neither species has biomass or catches assigned
+            // Arrange: neither species has ever had biomass assigned
             var (service, _, quotaCalculator) = CreateServiceWithMocks();
             quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
             await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
 
-            // Act
-            var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
-
-            // Assert
-            regulations.TotalAllowableCatches.Should().BeEmpty();
+            // Act & Assert
+            var act = () => service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*biomass has not been assigned*");
         }
 
         [Fact]
-        public async Task GetRegulations_SkipsSpeciesWithoutBiomassAndCatch()
+        public async Task GetRegulations_EmitsTacForAllMappedSpeciesOnceBiomassIsAssigned()
         {
-            // Arrange: only PIL has biomass and catches assigned; KHE must be skipped
+            // Arrange: only PIL has biomass and catches assigned, but quotas are still computed for every mapped species
             var (service, _, quotaCalculator) = CreateServiceWithMocks();
             quotaCalculator.Setup(qc => qc.UpdateQuotas()).Returns(new float[] { 0f, 100f, 40f });
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
@@ -695,8 +696,8 @@ namespace SURIMI_fisheries_authority.Tests
             var regulations = await service.GetRegulationsAsync(new DateTime(2024, 1, 1), new DateTime(2024, 12, 31));
 
             // Assert
-            regulations.TotalAllowableCatches.Should().HaveCount(2);
-            regulations.TotalAllowableCatches!.Select(tac => tac.Species!.SpeciesCode).Distinct().Should().BeEquivalentTo("PIL");
+            regulations.TotalAllowableCatches.Should().HaveCount(4);
+            regulations.TotalAllowableCatches!.Select(tac => tac.Species!.SpeciesCode).Distinct().Should().BeEquivalentTo("PIL", "KHE");
         }
 
         [Fact]
@@ -721,7 +722,8 @@ namespace SURIMI_fisheries_authority.Tests
 
             // Assert
             // Recruitment CSV: PIL RstockRatio = 0.893, RHalfB0Ratio = 0.2; seeded values are based on the first biomass only
-            service.Biomass[1].Should().Be(15.0f);
+            // Biomass is overwritten (not accumulated) across calls, so it reflects the latest month's value
+            service.Biomass[1].Should().Be(5.0f);
             service.m_MSEQuotaData!.Bestimate[1].Should().Be(10.0f);
             service.m_MSEQuotaData.BhalfT[1].Should().Be(0.2f * 10.0f);
             service.m_MSEQuotaData.Rmax[1].Should().Be(0.893f * 10.0f * (0.2f + 1.0f));

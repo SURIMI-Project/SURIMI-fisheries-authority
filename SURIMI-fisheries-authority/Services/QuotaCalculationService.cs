@@ -22,8 +22,8 @@ namespace SURIMI_fisheries_authority.Services
         public FleetQuotaShareMap? m_QuotaShares { get; private set; }
         public StockRecruitmentMap? m_StockRecruitment { get; private set; }
         public float[] Biomass { get; private set; } = Array.Empty<float>();
-        private bool[] m_IsBiomassAlreadyAssigned = Array.Empty<bool>();
-        private bool[] m_IsCatchYearGroupAlreadyAssigned = Array.Empty<bool>();
+        private bool m_IsBiomassAllreadyAssigned = false;       // if biomass in not assigned, MSE is not initialised yet , so we cannot calculate Fish1 factor for catch disposition. 
+        private bool m_IsCatchYearGroupAlreadyAssigned = false;
 
         public QuotaCalculationService(ILogger<QuotaCalculationService> logger, IMSEStockRecruitment stockRecruitment, IMSEQuotaCalculator quotaCalculator, QuotaShareLoader quotaShareLoader, RecruitmentLoader recruitmentLoader, IMseDiagnosticsRecorder diagnostics)
         {
@@ -96,10 +96,11 @@ namespace SURIMI_fisheries_authority.Services
             }
 
             Biomass = new float[m_MSEQuotaData.nGroups + 1];
-            m_IsBiomassAlreadyAssigned = new bool[m_MSEQuotaData.nGroups + 1];
-            m_IsCatchYearGroupAlreadyAssigned = new bool[m_MSEQuotaData.nGroups + 1];
         }
 
+        /// <summary>
+        /// This method is called (By the controller) when the biomass is updated. It is also called at the start of the simulation, before GetRegulations, to set the initial biomass for the first year of the simulation.
+        /// </summary>
         public Task UpdateBiomassAsync(DateTime dateTime, List<BiomassGrid> biomassGrids)
         {
             var mseQuotaData = m_MSEQuotaData ?? throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
@@ -111,20 +112,21 @@ namespace SURIMI_fisheries_authority.Services
                 }
 
                 var monthBiomass = (float)grid.BiomassCells.Sum(cell => cell.Biomass);
-                Biomass[iGroup] += monthBiomass;
-                m_diagnostics.RecordMonthlyBiomass(m_SimulationId, dateTime, grid.Species.SpeciesCode, grid.Species.LifeStage, iGroup, monthBiomass, Biomass[iGroup]);
+                Biomass[iGroup] = monthBiomass;
 
                 // only the first time Biomass is assigned, we also fill the Bestimate array, which is used in the EwECore MSE model to calculate the fishing mortality rate
-                if (!m_IsBiomassAlreadyAssigned[iGroup])
+                // UpdateBiomass is called at the start of the simulation, before GetRegulations. So we can use the Biomass as the initial Bestimate for the first year of the simulation.
+                if (!m_IsBiomassAllreadyAssigned)
                 {
-                    mseQuotaData.Bestimate[iGroup] = Biomass[iGroup];
-                    var RStock0 = mseQuotaData.RstockRatio[iGroup] * Biomass[iGroup];
-                    mseQuotaData.BhalfT[iGroup] = mseQuotaData.RHalfB0Ratio[iGroup] * Biomass[iGroup];
-                    mseQuotaData.Rmax[iGroup] = RStock0 * (mseQuotaData.RHalfB0Ratio[iGroup] + 1);
+                    InitForRun(monthBiomass, iGroup);
                 }
-                 m_IsBiomassAlreadyAssigned[iGroup] = true;
+                else
+                {
+                    m_diagnostics.RecordMonthlyBiomass(m_SimulationId, dateTime, grid.Species.SpeciesCode, grid.Species.LifeStage, iGroup, monthBiomass);
+                }
             }
 
+            m_IsBiomassAllreadyAssigned = true;     // So next time, we can just update the Biomass array
             return Task.CompletedTask;
         }
 
@@ -142,19 +144,19 @@ namespace SURIMI_fisheries_authority.Services
                 var landings = (float)grid.DispositionCells.Sum(cell => cell.GrossCatchBiomass - cell.LiveDiscardsBiomass);
 
                 // if this is the first catch disposition, calulate the Fish1 factor for the species group, which is used in the EwECore MSE model to calculate the fishing mortality rate
-                if (!m_IsCatchYearGroupAlreadyAssigned[iGroup])
+                if (!m_IsCatchYearGroupAlreadyAssigned)
                 {
-                    if(!m_IsBiomassAlreadyAssigned[iGroup])
+                    if(!m_IsBiomassAllreadyAssigned)
                     {
-                        throw new InvalidOperationException($"Biomass for species group {iGroup} is not set before catch disposition update in simulation {m_SimulationId}. Cannot calculate Fish1 factor.");
+                        throw new InvalidOperationException($"MSE Not initialised yet. Biomass for species group {iGroup} is not set before catch disposition update in simulation {m_SimulationId}. Cannot calculate Fish1 factor.");
                     }
                     mseQuotaData.Fish1[iGroup] = landings / Biomass[iGroup];
                 }
                 // Aggregate the biomass removed from the stock: gross catch minus live discards (live discards survive)
                 mseQuotaData.CatchYearGroup[iGroup] += landings;
                 m_diagnostics.RecordMonthlyCatch(m_SimulationId, startDateTime, grid.Species.SpeciesCode, grid.Species.LifeStage, iGroup, landings, mseQuotaData.CatchYearGroup[iGroup]);
-                m_IsCatchYearGroupAlreadyAssigned[iGroup] = true;
             }
+            m_IsCatchYearGroupAlreadyAssigned = true;
 
             return Task.CompletedTask;
         }
@@ -184,17 +186,15 @@ namespace SURIMI_fisheries_authority.Services
                 m_diagnostics.RecordYear(m_SimulationId, startDateTime.Year, speciesCode, lifeStage, iGroup, Biomass[iGroup], m_MSEQuotaData, quotas[iGroup]);
             }
 
-            Array.Clear(Biomass);
             Array.Clear(m_MSEQuotaData.CatchYearGroup);
 
             // Split each species quota across the fleets according to the scenario quota shares
             var totalAllowableCatches = new List<TotalAllowableCatch>();
             foreach (var (speciesCode, lifeStage, iGroup) in m_QuotaSpeciesGroupMap.Entries)
             {
-                if(m_IsBiomassAlreadyAssigned[iGroup] == false || m_IsCatchYearGroupAlreadyAssigned[iGroup] == false)
+                if(m_IsBiomassAllreadyAssigned == false)
                 {
-                    m_logger.LogInformation("Skipping quota calculation for species ({SpeciesCode}, {LifeStage}) in simulation {SimulationId} as biomass or catch has not been assigned", speciesCode, lifeStage, m_SimulationId);
-                    continue; // skip species that have not been assigned biomass and catch, as they are not part of the current simulation
+                    throw new InvalidOperationException($"Can't do quota calculation for species ({speciesCode}, {lifeStage}) in simulation {m_SimulationId} as biomass has not been assigned");
                 }
                 if (!m_QuotaShares.TryGetShares(speciesCode, lifeStage, out var shares))
                 {
@@ -279,6 +279,15 @@ namespace SURIMI_fisheries_authority.Services
             {
                 throw new InvalidOperationException($"Recruitment file for scenario {scenarioName} does not match the simulation contract: {string.Join("; ", problems)}");
             }
+        }
+
+        private void InitForRun(float biomass, int iGroup)
+        {
+            var mseQuotaData = m_MSEQuotaData ?? throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
+            mseQuotaData.Bestimate[iGroup] = biomass;
+            var RStock0 = mseQuotaData.RstockRatio[iGroup] * biomass;
+            mseQuotaData.BhalfT[iGroup] = mseQuotaData.RHalfB0Ratio[iGroup] * biomass;
+            mseQuotaData.Rmax[iGroup] = RStock0 * (mseQuotaData.RHalfB0Ratio[iGroup] + 1);  
         }
     }
 }
