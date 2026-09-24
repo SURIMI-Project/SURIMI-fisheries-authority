@@ -18,6 +18,7 @@
 - Yearly accumulators (`Biomass`, `CatchYearGroup`) are cleared in `GetRegulationsAsync` after quotas are calculated, so they cover exactly one regulatory year.
 - `Bestimate[]` must be seeded exactly once by `QuotaCalculationService` on the first biomass update for a group, and never re-assigned afterwards: `cMSEQuotaCalculator` uses the *previous* `Bestimate` value in its assessment and then updates it itself. 
 - `BhalfT`, `Rmax` and `Fish1` are one-time startup values derived from the initial (unfished) biomass B0 and the first catch disposition; they stay constant for the rest of the simulation. The `m_IsBiomassAlreadyAssigned` / `m_IsCatchYearGroupAlreadyAssigned` flags guard this one-time initialisation and are intentionally never reset.
+- `CsvMseDiagnosticsRecorder` writes 4 CSV files per simulation (`biomass-monthly`, `catch-monthly`, `mse-assessment`, `tac`) uploaded under the `{simulationId}/` blob prefix with filenames prefixed by `{simulationId}_`. Rows and headers do not include a `simulation_id` column, since the id is already encoded in the directory and filename; the `simulationId` parameter on each `Record*` method is only used for internal buffering/routing, not written to the CSV content.
 
 ## Scenario configuration files
 - Scenario CSV files (quota shares, recruitment) are comma-delimited with a dot as decimal separator (`CultureInfo.InvariantCulture`).
