@@ -23,7 +23,7 @@ namespace SURIMI_fisheries_authority.Services
             _logger = logger;
         }
 
-        public async Task<StockRecruitmentMap> LoadAsync(string scenarioName, CancellationToken cancellationToken)
+        public async Task<StockRecruitmentMap> LoadAsync(string scenarioName, CancellationToken cancellationToken = default)
         {
             string fileNamePath = $"{scenarioName}/{scenarioName}_recruitment.csv";
             if (!await _blobStore.ExistsAsync(fileNamePath, PathType.Input, cancellationToken))

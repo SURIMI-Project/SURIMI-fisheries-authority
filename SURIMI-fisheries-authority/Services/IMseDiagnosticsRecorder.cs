@@ -12,6 +12,6 @@ namespace SURIMI_fisheries_authority.Services
 
         void RecordTac(string simulationId, int year, string speciesCode, string lifeStage, string gearCode, string countryCode, float share, float tac);
 
-        Task FlushAsync(string simulationId, CancellationToken cancellationToken);
+        Task FlushAsync(string simulationId, CancellationToken cancellationToken = default);
     }
 }

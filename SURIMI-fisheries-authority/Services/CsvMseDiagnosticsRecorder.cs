@@ -24,10 +24,9 @@ namespace SURIMI_fisheries_authority.Services
         {
             if (m_monthlyBiomassRows.Length == 0)
             {
-                m_monthlyBiomassRows.AppendLine("simulation_id,year,month,species_code,life_stage,group,MonthBiomass");
+                m_monthlyBiomassRows.AppendLine("year,month,species_code,life_stage,group,MonthBiomass");
             }
             m_monthlyBiomassRows.AppendLine(string.Join(',',
-                simulationId,
                 periodStart.Year.ToString(CultureInfo.InvariantCulture),
                 periodStart.Month.ToString(CultureInfo.InvariantCulture),
                 speciesCode,
@@ -40,10 +39,9 @@ namespace SURIMI_fisheries_authority.Services
         {
             if (m_monthlyCatchRows.Length == 0)
             {
-                m_monthlyCatchRows.AppendLine("simulation_id,year,month,species_code,life_stage,group,MonthLandings,AccumulatedCatchYearGroup");
+                m_monthlyCatchRows.AppendLine("year,month,species_code,life_stage,group,MonthLandings,AccumulatedCatchYearGroup");
             }
             m_monthlyCatchRows.AppendLine(string.Join(',',
-                simulationId,
                 periodStart.Year.ToString(CultureInfo.InvariantCulture),
                 periodStart.Month.ToString(CultureInfo.InvariantCulture),
                 speciesCode,
@@ -57,10 +55,9 @@ namespace SURIMI_fisheries_authority.Services
         {
             if (m_yearRows.Length == 0)
             {
-                m_yearRows.AppendLine("simulation_id,year,species_code,life_stage,group,Biomass,CatchYearGroup,Bestimate,BhalfT,Rmax,Fish1,Blim,Bbase,Fopt,Quota");
+                m_yearRows.AppendLine("year,species_code,life_stage,group,Biomass,CatchYearGroup,Bestimate,BhalfT,Rmax,Fish1,Blim,Bbase,Fopt,Quota");
             }
             m_yearRows.AppendLine(string.Join(',',
-                simulationId,
                 year.ToString(CultureInfo.InvariantCulture),
                 speciesCode,
                 lifeStage,
@@ -81,10 +78,9 @@ namespace SURIMI_fisheries_authority.Services
         {
             if (m_tacRows.Length == 0)
             {
-                m_tacRows.AppendLine("simulation_id,year,species_code,life_stage,gear_code,country_code,share,TAC");
+                m_tacRows.AppendLine("year,species_code,life_stage,gear_code,country_code,share,TAC");
             }
             m_tacRows.AppendLine(string.Join(',',
-                simulationId,
                 year.ToString(CultureInfo.InvariantCulture),
                 speciesCode,
                 lifeStage,
@@ -94,7 +90,7 @@ namespace SURIMI_fisheries_authority.Services
                 tac.ToString(CultureInfo.InvariantCulture)));
         }
 
-        public async Task FlushAsync(string simulationId, CancellationToken cancellationToken)
+        public async Task FlushAsync(string simulationId, CancellationToken cancellationToken = default)
         {
             await UploadIfNotEmptyAsync(simulationId, $"{simulationId}_biomass-monthly.csv", m_monthlyBiomassRows, cancellationToken);
             await UploadIfNotEmptyAsync(simulationId, $"{simulationId}_catch-monthly.csv", m_monthlyCatchRows, cancellationToken);

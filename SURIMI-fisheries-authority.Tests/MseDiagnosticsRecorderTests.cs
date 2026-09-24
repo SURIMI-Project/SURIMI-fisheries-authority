@@ -104,7 +104,7 @@ namespace SURIMI_fisheries_authority.Tests
             await service.FinaliseSimulationAsync(CancellationToken.None);
 
             // Assert
-            diagnostics.Verify(d => d.FlushAsync("sim-1", CancellationToken.None), Times.Once);
+            diagnostics.Verify(d => d.FlushAsync("sim-1"), Times.Once);
         }
 
         [Fact]
@@ -117,7 +117,7 @@ namespace SURIMI_fisheries_authority.Tests
             await service.CancelSimulationAsync(CancellationToken.None);
 
             // Assert
-            diagnostics.Verify(d => d.FlushAsync("sim-1", CancellationToken.None), Times.Once);
+            diagnostics.Verify(d => d.FlushAsync("sim-1"), Times.Once);
         }
 
         [Fact]
@@ -140,20 +140,20 @@ namespace SURIMI_fisheries_authority.Tests
             recorder.RecordTac("sim-1", 2024, "PIL", "", "ART", "ESP", 0.75f, 75.5f);
 
             // Act
-            await recorder.FlushAsync("sim-1", CancellationToken.None);
+            await recorder.FlushAsync("sim-1");
 
             // Assert
             var biomassLines = uploads["sim-1/sim-1_biomass-monthly.csv"].Split(Environment.NewLine);
-            biomassLines[0].Should().Be("simulation_id,year,month,species_code,life_stage,group,MonthBiomass");
-            biomassLines[1].Should().Be("sim-1,2024,3,PIL,,1,10.5");
+            biomassLines[0].Should().Be("year,month,species_code,life_stage,group,MonthBiomass");
+            biomassLines[1].Should().Be("2024,3,PIL,,1,10.5");
 
             var catchLines = uploads["sim-1/sim-1_catch-monthly.csv"].Split(Environment.NewLine);
-            catchLines[0].Should().Be("simulation_id,year,month,species_code,life_stage,group,MonthLandings,AccumulatedCatchYearGroup");
-            catchLines[1].Should().Be("sim-1,2024,3,PIL,,1,2.5,7.5");
+            catchLines[0].Should().Be("year,month,species_code,life_stage,group,MonthLandings,AccumulatedCatchYearGroup");
+            catchLines[1].Should().Be("2024,3,PIL,,1,2.5,7.5");
 
             var tacLines = uploads["sim-1/sim-1_tac.csv"].Split(Environment.NewLine);
-            tacLines[0].Should().Be("simulation_id,year,species_code,life_stage,gear_code,country_code,share,TAC");
-            tacLines[1].Should().Be("sim-1,2024,PIL,,ART,ESP,0.75,75.5");
+            tacLines[0].Should().Be("year,species_code,life_stage,gear_code,country_code,share,TAC");
+            tacLines[1].Should().Be("2024,PIL,,ART,ESP,0.75,75.5");
 
             // No yearly rows were recorded, so no assessment file is uploaded
             uploads.Should().NotContainKey("sim-1/sim-1_mse-assessment.csv");
@@ -173,10 +173,11 @@ namespace SURIMI_fisheries_authority.Tests
                 quotaCalculator.Object,
                 new QuotaShareLoader(CreateQuotaShareBlobStore(), NullLogger<QuotaShareLoader>.Instance),
                 new RecruitmentLoader(CreateRecruitmentBlobStore(), NullLogger<RecruitmentLoader>.Instance),
+                new InitialQuotaLoader(CreateInitialQuotaBlobStore(), NullLogger<InitialQuotaLoader>.Instance),
                 diagnostics.Object);
 
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
-            await service.CreateRegulationsAsync(CreateRegulationSummary(), CancellationToken.None);
+            await service.CreateRegulationsAsync(CreateRegulationSummary());
             return (service, diagnostics);
         }
 
@@ -208,6 +209,22 @@ namespace SURIMI_fisheries_authority.Tests
                 .ReturnsAsync(true);
             blobStore
                 .Setup(bs => bs.ReadAllTextAsync($"{ScenarioName}/{ScenarioName}_recruitment.csv", PathType.Input, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(csvContent);
+            return blobStore.Object;
+        }
+
+        private static IBlobStore CreateInitialQuotaBlobStore()
+        {
+            var csvContent =
+                "species_code,life_stage,TAC\n" +
+                "PIL,,16000\n" +
+                "KHE,,25000\n";
+            var blobStore = new Mock<IBlobStore>();
+            blobStore
+                .Setup(bs => bs.ExistsAsync($"{ScenarioName}/{ScenarioName}_initial_quota.csv", PathType.Input, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(true);
+            blobStore
+                .Setup(bs => bs.ReadAllTextAsync($"{ScenarioName}/{ScenarioName}_initial_quota.csv", PathType.Input, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(csvContent);
             return blobStore.Object;
         }

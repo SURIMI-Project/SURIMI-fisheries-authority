@@ -10,7 +10,7 @@ The service is written in **C# (.NET 10)** and developed with **Microsoft Visual
 
 ### Licence
 
-The code is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See `LICENSE.txt` in the repository root.
+The code is licensed under the **EUROPEAN UNION PUBLIC LICENCE v. 1.2**. See `LICENSE.txt` in the repository root.
 
 ---
 

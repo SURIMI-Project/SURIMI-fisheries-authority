@@ -33,7 +33,7 @@ namespace SURIMI_fisheries_authority.Services
                 var quotaCalculationService = m_simulationScopeManager.CreateSimulationScope(request.SimulationId);
                 try
                 {
-                    await quotaCalculationService.InitialiseSimulationAsync(request.SimulationId, request.ScenarioName, surimiContract);
+                    await quotaCalculationService.InitialiseSimulationAsync(request.SimulationId, request.ScenarioName, surimiContract, context.CancellationToken);
                 }
                 catch
                 {
@@ -115,7 +115,7 @@ namespace SURIMI_fisheries_authority.Services
             try
             {
                 var biomassGrids = GetBiomassGrids(request.BiomassSummary);
-                await m_simulationScopeManager.GetService(request.SimulationId).UpdateBiomassAsync(request.DateTime.ToDateTime(), biomassGrids);
+                await m_simulationScopeManager.GetService(request.SimulationId).UpdateBiomassAsync(request.DateTime.ToDateTime(), biomassGrids, context.CancellationToken);
                 return new UpdateBiomassResponse() { SimulationId = request.SimulationId };
             }
             catch (Exception ex)
@@ -136,7 +136,7 @@ namespace SURIMI_fisheries_authority.Services
             try
             {
                 var catchDispositionSummary = GetCatchDispositionSummary(request.CatchDispositionSummary);
-                await m_simulationScopeManager.GetService(request.SimulationId).UpdateCatchDispositionAsync(request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), catchDispositionSummary);
+                await m_simulationScopeManager.GetService(request.SimulationId).UpdateCatchDispositionAsync(request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), catchDispositionSummary, context.CancellationToken);
 
                 return new UpdateCatchDispositionResponse() { SimulationId = request.SimulationId };
             }
@@ -178,7 +178,7 @@ namespace SURIMI_fisheries_authority.Services
 
             try
             {
-                var regulationsSummary = await m_simulationScopeManager.GetService(request.SimulationId).GetRegulationsAsync(request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime());
+                var regulationsSummary = await m_simulationScopeManager.GetService(request.SimulationId).GetRegulationsAsync(request.StartDateTime.ToDateTime(), request.EndDateTime.ToDateTime(), context.CancellationToken);
 
                 var response = new GetRegulationsResponse
                 {
