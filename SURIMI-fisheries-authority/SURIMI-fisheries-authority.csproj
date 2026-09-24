@@ -35,6 +35,9 @@
       <None Update="Includes\northwestern_med\northwestern_med_quotashare.csv">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
+      <None Update="Includes\northwestern_med\northwestern_med_initial_quota.csv">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
       <None Update="Includes\northwestern_med\northwestern_med_recruitment.csv">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>

@@ -11,6 +11,7 @@ namespace SURIMI_fisheries_authority.Services
         private readonly IMSEQuotaCalculator m_quotaCalculator;
         private readonly QuotaShareLoader m_quotaShareLoader;
         private readonly RecruitmentLoader m_recruitmentLoader;
+        private readonly InitialQuotaLoader m_initialQuotaLoader;
         private readonly IMseDiagnosticsRecorder m_diagnostics;
 
 
@@ -20,22 +21,26 @@ namespace SURIMI_fisheries_authority.Services
         public IMSEQuotaData? m_MSEQuotaData { get; private set; }
         public SpeciesGroupMap m_QuotaSpeciesGroupMap { get; private set; } = new SpeciesGroupMap();
         public FleetQuotaShareMap? m_QuotaShares { get; private set; }
+        public InitialQuotaMap? m_InitialQuotaMap { get; private set; }
+        public StockRecruitmentMap? m_RecruitmentMap { get; private set; }
         public StockRecruitmentMap? m_StockRecruitment { get; private set; }
         public float[] Biomass { get; private set; } = Array.Empty<float>();
+        public float[] Quotas { get; private set; } = Array.Empty<float>();
         private bool m_IsBiomassAllreadyAssigned = false;       // if biomass in not assigned, MSE is not initialised yet , so we cannot calculate Fish1 factor for catch disposition. 
-        private bool m_IsCatchYearGroupAlreadyAssigned = false;
 
-        public QuotaCalculationService(ILogger<QuotaCalculationService> logger, IMSEStockRecruitment stockRecruitment, IMSEQuotaCalculator quotaCalculator, QuotaShareLoader quotaShareLoader, RecruitmentLoader recruitmentLoader, IMseDiagnosticsRecorder diagnostics)
+
+        public QuotaCalculationService(ILogger<QuotaCalculationService> logger, IMSEStockRecruitment stockRecruitment, IMSEQuotaCalculator quotaCalculator, QuotaShareLoader quotaShareLoader, RecruitmentLoader recruitmentLoader, InitialQuotaLoader initialQuotaLoader, IMseDiagnosticsRecorder diagnostics)
         {
             m_logger = logger;
             m_stockRecruitment = stockRecruitment;
             m_quotaCalculator = quotaCalculator;
             m_quotaShareLoader = quotaShareLoader;
             m_recruitmentLoader = recruitmentLoader;
+            m_initialQuotaLoader = initialQuotaLoader;
             m_diagnostics = diagnostics;
         }
 
-        public Task InitialiseSimulationAsync(string simulationId, string scenarioName, SurimiContract surimiContract)
+        public async Task InitialiseSimulationAsync(string simulationId, string scenarioName, SurimiContract surimiContract, CancellationToken cancellationToken = default)
         {
             m_SimulationId = simulationId;
             m_SurimiContract = surimiContract;
@@ -43,14 +48,26 @@ namespace SURIMI_fisheries_authority.Services
             // EwECore VB arrays are 1-based with inclusive sizing. To keep the same indexing, we allocate nGroups + 1 elements and ignore index 0.
             
             m_logger.LogInformation("Initialized simulation {SimulationId} ", simulationId);
-            return Task.CompletedTask;
+
+            m_QuotaShares = await m_quotaShareLoader.LoadAsync(m_ScenarioName, cancellationToken);
+            ValidateQuotaSharesMatchContract(m_QuotaShares, surimiContract, m_ScenarioName);
+
+            m_RecruitmentMap = await m_recruitmentLoader.LoadAsync(m_ScenarioName, cancellationToken);
+            ValidateRecruitmentMatchContract(m_RecruitmentMap, surimiContract, m_ScenarioName);
+
+            m_InitialQuotaMap = await m_initialQuotaLoader.LoadAsync(m_ScenarioName, cancellationToken);
+            ValidateInitialQuotaMatchContract(m_InitialQuotaMap, surimiContract, m_ScenarioName);
         }
 
-        public async Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary, CancellationToken cancellationToken)
+        public async Task CreateRegulationsAsync(RegulationDefinitionsSummary regulationDefinitionsSummary, CancellationToken cancellationToken = default)
         {
             if(m_MSEQuotaData != null)
             {
                 throw new InvalidOperationException($"Simulation with Id {m_SimulationId} already has regulations");
+            }
+            if(m_RecruitmentMap == null)
+            {
+                throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
             }
 
             var surimiContract = m_SurimiContract ?? throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
@@ -63,12 +80,6 @@ namespace SURIMI_fisheries_authority.Services
             m_stockRecruitment.Data = m_MSEQuotaData;
             m_quotaCalculator.Data = m_MSEQuotaData;
 
-            m_QuotaShares = await m_quotaShareLoader.LoadAsync(m_ScenarioName, cancellationToken);
-            ValidateQuotaSharesMatchContract(m_QuotaShares, surimiContract, m_ScenarioName);
-
-            var recruitmentMap = await m_recruitmentLoader.LoadAsync(m_ScenarioName, cancellationToken);
-            ValidateRecruitmentMatchContract(recruitmentMap, surimiContract, m_ScenarioName);
-
             foreach (var tfm in regulationDefinitionsSummary.TargetFishingMortalities ?? Enumerable.Empty<TargetFishingMortality>())
             {
                 // EwECore uses 1-based group indices, so store iGroup + 1
@@ -77,7 +88,7 @@ namespace SURIMI_fisheries_authority.Services
                     throw new InvalidOperationException($"Duplicate species ({tfm.Species.SpeciesCode}, {tfm.Species.LifeStage}) in RegulationDefinitionsSummary for simulation {m_SimulationId}");
                 }
 
-                if (recruitmentMap.TryGetConfiguration(tfm.Species.SpeciesCode, tfm.Species.LifeStage, out var recruitmentConfig))
+                if (m_RecruitmentMap.TryGetConfiguration(tfm.Species.SpeciesCode, tfm.Species.LifeStage, out var recruitmentConfig))
                 {
                     m_MSEQuotaData.RstockRatio[iGroup] = recruitmentConfig.RstockRatio;
                     m_MSEQuotaData.RHalfB0Ratio[iGroup] = recruitmentConfig.RHalfB0Ratio;
@@ -96,12 +107,13 @@ namespace SURIMI_fisheries_authority.Services
             }
 
             Biomass = new float[m_MSEQuotaData.nGroups + 1];
+            Quotas = new float[m_MSEQuotaData.nGroups + 1];
         }
 
         /// <summary>
-        /// This method is called (By the controller) when the biomass is updated. It is also called at the start of the simulation, before GetRegulations, to set the initial biomass for the first year of the simulation.
+        /// This method is called (By the controller) when the biomass is updated. 
         /// </summary>
-        public Task UpdateBiomassAsync(DateTime dateTime, List<BiomassGrid> biomassGrids)
+        public Task UpdateBiomassAsync(DateTime dateTime, List<BiomassGrid> biomassGrids, CancellationToken cancellationToken = default)
         {
             var mseQuotaData = m_MSEQuotaData ?? throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
             foreach (var grid in biomassGrids)
@@ -120,17 +132,15 @@ namespace SURIMI_fisheries_authority.Services
                 {
                     InitForRun(monthBiomass, iGroup);
                 }
-                else
-                {
-                    m_diagnostics.RecordMonthlyBiomass(m_SimulationId, dateTime, grid.Species.SpeciesCode, grid.Species.LifeStage, iGroup, monthBiomass);
-                }
+
+                m_diagnostics.RecordMonthlyBiomass(m_SimulationId, dateTime, grid.Species.SpeciesCode, grid.Species.LifeStage, iGroup, monthBiomass);
             }
 
             m_IsBiomassAllreadyAssigned = true;     // So next time, we can just update the Biomass array
             return Task.CompletedTask;
         }
 
-        public Task UpdateCatchDispositionAsync(DateTime startDateTime, DateTime endDateTime, CatchDispositionSummary catchDispositionSummary)
+        public Task UpdateCatchDispositionAsync(DateTime startDateTime, DateTime endDateTime, CatchDispositionSummary catchDispositionSummary, CancellationToken cancellationToken = default)
         {
             var mseQuotaData = m_MSEQuotaData ?? throw new InvalidOperationException($"Simulation with Id {m_SimulationId} is not initialised");
 
@@ -143,20 +153,11 @@ namespace SURIMI_fisheries_authority.Services
 
                 var landings = (float)grid.DispositionCells.Sum(cell => cell.GrossCatchBiomass - cell.LiveDiscardsBiomass);
 
-                // if this is the first catch disposition, calulate the Fish1 factor for the species group, which is used in the EwECore MSE model to calculate the fishing mortality rate
-                if (!m_IsCatchYearGroupAlreadyAssigned)
-                {
-                    if(!m_IsBiomassAllreadyAssigned)
-                    {
-                        throw new InvalidOperationException($"MSE Not initialised yet. Biomass for species group {iGroup} is not set before catch disposition update in simulation {m_SimulationId}. Cannot calculate Fish1 factor.");
-                    }
-                    mseQuotaData.Fish1[iGroup] = landings / Biomass[iGroup];
-                }
+                mseQuotaData.Fish1[iGroup] = landings / Biomass[iGroup];
                 // Aggregate the biomass removed from the stock: gross catch minus live discards (live discards survive)
                 mseQuotaData.CatchYearGroup[iGroup] += landings;
                 m_diagnostics.RecordMonthlyCatch(m_SimulationId, startDateTime, grid.Species.SpeciesCode, grid.Species.LifeStage, iGroup, landings, mseQuotaData.CatchYearGroup[iGroup]);
             }
-            m_IsCatchYearGroupAlreadyAssigned = true;
 
             return Task.CompletedTask;
         }
@@ -167,7 +168,7 @@ namespace SURIMI_fisheries_authority.Services
         /// <param name="startDateTime"></param>
         /// <param name="endDateTime"></param>
         /// <returns></returns>
-        public async Task<RegulationsSummary> GetRegulationsAsync(DateTime startDateTime, DateTime endDateTime)
+        public async Task<RegulationsSummary> GetRegulationsAsync(DateTime startDateTime, DateTime endDateTime, CancellationToken cancellationToken = default)
         {
             m_logger.LogInformation("Calculating regulations for simulation {SimulationId} ({StartDateTime} - {EndDateTime})", m_SimulationId, startDateTime, endDateTime);
 
@@ -178,12 +179,30 @@ namespace SURIMI_fisheries_authority.Services
 
             m_quotaCalculator.DoAssessment(Biomass, startDateTime.Year);
 
-            var quotas = m_quotaCalculator.UpdateQuotas();
+            // check if biomass is already assigned, if not, we need to assign the initial quotas from the InitialQuotaMap, otherwise we can update the quotas using the EwECore MSE model
+            if (!m_IsBiomassAllreadyAssigned)
+            {
+                var initialQuotaMap = m_InitialQuotaMap ?? throw new InvalidOperationException($"Simulation with Id {m_SimulationId}, InitialQuotaMap is not initialised");
+
+                foreach (var (speciesCode, lifeStage, iGroup) in m_QuotaSpeciesGroupMap.Entries)
+                {
+                    if (!initialQuotaMap.TryGetQuota(speciesCode, lifeStage, out var tac))
+                    {
+                        throw new InvalidOperationException($"No initial quota configured for species ({speciesCode}, {lifeStage}) group {iGroup} in simulation {m_SimulationId}");
+                    }
+
+                    Quotas[iGroup] = tac;
+                }
+            }
+            else
+            {
+                Quotas = m_quotaCalculator.UpdateQuotas();
+            }
 
             // Record the assessment snapshot before the yearly accumulators are cleared, so it reflects exactly the regulatory year just assessed
             foreach (var (speciesCode, lifeStage, iGroup) in m_QuotaSpeciesGroupMap.Entries)
             {
-                m_diagnostics.RecordYear(m_SimulationId, startDateTime.Year, speciesCode, lifeStage, iGroup, Biomass[iGroup], m_MSEQuotaData, quotas[iGroup]);
+                m_diagnostics.RecordYear(m_SimulationId, startDateTime.Year, speciesCode, lifeStage, iGroup, Biomass[iGroup], m_MSEQuotaData, Quotas[iGroup]);
             }
 
             Array.Clear(m_MSEQuotaData.CatchYearGroup);
@@ -192,10 +211,6 @@ namespace SURIMI_fisheries_authority.Services
             var totalAllowableCatches = new List<TotalAllowableCatch>();
             foreach (var (speciesCode, lifeStage, iGroup) in m_QuotaSpeciesGroupMap.Entries)
             {
-                if(m_IsBiomassAllreadyAssigned == false)
-                {
-                    throw new InvalidOperationException($"Can't do quota calculation for species ({speciesCode}, {lifeStage}) in simulation {m_SimulationId} as biomass has not been assigned");
-                }
                 if (!m_QuotaShares.TryGetShares(speciesCode, lifeStage, out var shares))
                 {
                     throw new InvalidOperationException($"No quota shares configured for species ({speciesCode}, {lifeStage}) while a quota is defined in simulation {m_SimulationId}");
@@ -203,7 +218,7 @@ namespace SURIMI_fisheries_authority.Services
 
                 foreach (var (fleet, share) in shares)
                 {
-                    var tac = quotas[iGroup] * share;
+                    var tac = Quotas[iGroup] * share;
                     m_logger.LogInformation("TAC for species ({SpeciesCode}, {LifeStage}) fleet ({GearCode}, {CountryCode}) in simulation {SimulationId}: {Tac}", speciesCode, lifeStage, fleet.GearCode, fleet.CountryCode, m_SimulationId, tac);
                     m_diagnostics.RecordTac(m_SimulationId, startDateTime.Year, speciesCode, lifeStage, fleet.GearCode, fleet.CountryCode, share, tac);
                     totalAllowableCatches.Add(new TotalAllowableCatch
@@ -231,13 +246,13 @@ namespace SURIMI_fisheries_authority.Services
             return  regulationsSummary;
         }
 
-        public async Task FinaliseSimulationAsync(CancellationToken cancellationToken)
+        public async Task FinaliseSimulationAsync(CancellationToken cancellationToken = default)
         {
             await m_diagnostics.FlushAsync(m_SimulationId, cancellationToken);
             m_logger.LogInformation("Finalised simulation {SimulationId}", m_SimulationId);
         }
 
-        public async Task CancelSimulationAsync(CancellationToken cancellationToken)
+        public async Task CancelSimulationAsync(CancellationToken cancellationToken = default)
         {
             await m_diagnostics.FlushAsync(m_SimulationId, cancellationToken);
             m_logger.LogInformation("Cancelled simulation {SimulationId}", m_SimulationId);
@@ -278,6 +293,22 @@ namespace SURIMI_fisheries_authority.Services
             if (problems.Count > 0)
             {
                 throw new InvalidOperationException($"Recruitment file for scenario {scenarioName} does not match the simulation contract: {string.Join("; ", problems)}");
+            }
+        }
+
+        private static void ValidateInitialQuotaMatchContract(InitialQuotaMap initialQuotas, SurimiContract surimiContract, string scenarioName)
+        {
+            var contractSpecies = surimiContract.Items.Species
+                .Select(s => new SpeciesKey(s.SpeciesCode, s.LifeStage))
+                .ToHashSet();
+            var csvSpecies = initialQuotas.SpeciesKeys.ToHashSet();
+
+            var problems = new List<string>();
+            problems.AddRange(csvSpecies.Except(contractSpecies).Select(s => $"species ({s.SpeciesCode}, {s.LifeStage}) in initial quota file but not in contract"));
+
+            if (problems.Count > 0)
+            {
+                throw new InvalidOperationException($"Initial quota file for scenario {scenarioName} does not match the simulation contract: {string.Join("; ", problems)}");
             }
         }
 

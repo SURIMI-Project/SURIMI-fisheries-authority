@@ -33,7 +33,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "KHE,ADULT,0.75,,0.25\n");
 
             // Act
-            var map = await loader.LoadAsync(ScenarioName, CancellationToken.None);
+            var map = await loader.LoadAsync(ScenarioName);
 
             // Assert
             map.Fleets.Should().HaveCount(3);
@@ -64,7 +64,7 @@ namespace SURIMI_fisheries_authority.Tests
             var loader = new QuotaShareLoader(blobStore.Object, NullLogger<QuotaShareLoader>.Instance);
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
+            var act = () => loader.LoadAsync(ScenarioName);
             await act.Should().ThrowAsync<RpcException>();
         }
 
@@ -77,7 +77,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "PIL,,abc,0.5\n");
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
+            var act = () => loader.LoadAsync(ScenarioName);
             await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*abc*");
         }
 
@@ -90,7 +90,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "PIL,,1\n");
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
+            var act = () => loader.LoadAsync(ScenarioName);
             await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*columns*");
         }
 
@@ -104,7 +104,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "PIL,,1,\n");
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
+            var act = () => loader.LoadAsync(ScenarioName);
             await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*Duplicate species*");
         }
 
@@ -117,7 +117,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "PIL,,0.5,0.25\n");
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
+            var act = () => loader.LoadAsync(ScenarioName);
             await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*sum*");
         }
 
@@ -130,7 +130,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "PIL,,0.75,0.5\n");
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
+            var act = () => loader.LoadAsync(ScenarioName);
             await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*sum*");
         }
 
@@ -143,7 +143,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "PIL,,0.3333,0.3333,0.3334\n");
 
             // Act
-            var map = await loader.LoadAsync(ScenarioName, CancellationToken.None);
+            var map = await loader.LoadAsync(ScenarioName);
 
             // Assert
             map.TryGetShares("PIL", "", out var shares).Should().BeTrue();
@@ -159,7 +159,7 @@ namespace SURIMI_fisheries_authority.Tests
                 "PIL,,1\n");
 
             // Act & Assert
-            var act = () => loader.LoadAsync(ScenarioName, CancellationToken.None);
+            var act = () => loader.LoadAsync(ScenarioName);
             await act.Should().ThrowAsync<InvalidDataException>().WithMessage("*fleet column*");
         }
     }

@@ -23,7 +23,7 @@ namespace SURIMI_fisheries_authority.Services
             _logger = logger;
         }
 
-        public async Task<FleetQuotaShareMap> LoadAsync(string scenarioName, CancellationToken cancellationToken)
+        public async Task<FleetQuotaShareMap> LoadAsync(string scenarioName, CancellationToken cancellationToken = default)
         {
             string fileNamePath = $"{scenarioName}/{scenarioName}_quotashare.csv";
 
