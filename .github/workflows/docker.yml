@@ -27,11 +27,11 @@ jobs:
         run: |
           docker build \
             -f ./SURIMI-fisheries-authority/Dockerfile \
-            -t ghcr.io/official-ewe/surimifisheriesauthority:latest \
+            -t ghcr.io/surimi-project/surimifisheriesauthority:latest \
             --secret id=GITHUB_TOKEN,env=GITHUB_TOKEN \
             --secret id=BSR_TOKEN,env=BSR_TOKEN \
             .
 
       - name: Push Docker image
         run: |
-          docker push ghcr.io/official-ewe/surimifisheriesauthority:latest
+          docker push ghcr.io/surimi-project/surimifisheriesauthority:latest

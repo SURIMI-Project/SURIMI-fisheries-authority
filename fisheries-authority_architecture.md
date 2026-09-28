@@ -264,7 +264,7 @@ Two GitHub Actions workflows are defined:
 
 ### `build-check.yml` — Build Check (on pull request to `master`)
 
-Triggered on every pull request targeting `master`. Uses the reusable action `Official-EwE/Eii.GithubActions/BuildCheckUbuntuBSR@master`, which performs a NuGet restore (with BSR token for the Buf Schema Registry) and a dotnet build to verify the code compiles before merging.
+Triggered on every pull request targeting `master`. Uses the reusable action `SURIMI-Project/Surimi-GithubActions/BuildCheckUbuntuBSR@master`, which performs a NuGet restore (with BSR token for the Buf Schema Registry) and a dotnet build to verify the code compiles before merging.
 
 ### `docker.yml` — Build and Push Docker Image (on push to `master`)
 
@@ -272,7 +272,7 @@ Triggered on every push to `master`. Steps:
 1. Checks out the repository.
 2. Logs in to the **GitHub Container Registry (GHCR)** using `GITHUB_TOKEN`.
 3. Builds the Docker image using `SURIMI-fisheries-authority/Dockerfile`, injecting `GITHUB_TOKEN` (for GitHub Packages NuGet feed) and `BSR_TOKEN` (for Buf Schema Registry) as BuildKit secrets.
-4. Pushes the image to: **`ghcr.io/official-ewe/surimifisheriesauthority:latest`**
+4. Pushes the image to: **`ghcr.io/surimi-project/surimifisheriesauthority:latest`**
 
 ---
 
@@ -320,11 +320,11 @@ SURIMI-fisheries-authority/          ← Repository root
 
 ## Source control
 
-The project uses **Git**, hosted on **GitHub** at [`Official-EwE/SURIMI-fisheries-authority`](https://github.com/Official-EwE/SURIMI-fisheries-authority).
+The project uses **Git**, hosted on **GitHub** at [`SURIMI-Project/SURIMI-fisheries-authority`](https://github.com/SURIMI-Project/SURIMI-fisheries-authority).
 
 Notable points:
 - The `BSR.Surimi.Surimi-Protocol.Grpc.Csharp` package is consumed from the **Buf Schema Registry (BSR)** NuGet feed (`https://buf.build/gen/nuget/index.json`), requiring a `BSR_TOKEN` secret in CI and in local NuGet configuration.
-- The `SURIMI.Common` and `SURIMI.Datamodel` packages are consumed from the **GitHub Packages** NuGet feed (`https://nuget.pkg.github.com/Official-EwE/index.json`), requiring a `GITHUB_TOKEN`.
+- The `SURIMI.Common` and `SURIMI.Datamodel` packages are consumed from the **GitHub Packages** NuGet feed (`https://nuget.pkg.github.com/surimi-project/index.json`), requiring a `GITHUB_TOKEN`.
 - There are no Git submodules. Protocol definitions are versioned independently via the BSR NuGet package.
 
 ---

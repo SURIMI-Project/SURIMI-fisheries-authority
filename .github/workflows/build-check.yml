@@ -10,6 +10,6 @@ jobs:
 
     steps:
       - name: Use custom NuGet build check action
-        uses: Official-EwE/Eii.GithubActions/BuildCheckUbuntuBSR@master
+        uses: SURIMI-Project/Surimi-GithubActions/BuildCheckUbuntuBSR@master
         with:
           bsr-token: ${{ secrets.BSR_TOKEN }}
