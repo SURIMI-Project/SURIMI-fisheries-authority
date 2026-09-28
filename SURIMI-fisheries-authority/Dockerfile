@@ -33,6 +33,18 @@ RUN --mount=type=secret,id=GITHUB_TOKEN \
     --configfile NuGet.config; \
     fi
 
+# Add authentication for github-Surimi-project GitHub Packages (pass via: --secret id=GITHUB_TOKEN,env=GITHUB_TOKEN)
+RUN --mount=type=secret,id=GITHUB_TOKEN \
+    if [ -f /run/secrets/GITHUB_TOKEN ]; then \
+    dotnet nuget remove source github-Surimi-project || true; \
+    dotnet nuget add source https://nuget.pkg.github.com/surimi-project/index.json \
+    --name github-Surimi-project \
+    --username github \
+    --password "$(cat /run/secrets/GITHUB_TOKEN)" \
+    --store-password-in-clear-text \
+    --configfile NuGet.config; \
+    fi
+
 # Add authentication for BSR (pass via: --secret id=BSR_TOKEN,env=BSR_TOKEN)
 RUN --mount=type=secret,id=BSR_TOKEN \
     if [ -f /run/secrets/BSR_TOKEN ]; then \
