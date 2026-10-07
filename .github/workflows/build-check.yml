@@ -1,4 +1,4 @@
-name: Build Check
+name: Build Test Check
 on:
   pull_request:
     branches:
@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Use custom NuGet build check action
-        uses: SURIMI-Project/Surimi-GithubActions/BuildCheckUbuntuBSR@master
+      - name: Use custom NuGet build test check action
+        uses: SURIMI-Project/Surimi-GithubActions/BuildTestCheckUbuntuBSR@master
         with:
           bsr-token: ${{ secrets.BSR_TOKEN }}
