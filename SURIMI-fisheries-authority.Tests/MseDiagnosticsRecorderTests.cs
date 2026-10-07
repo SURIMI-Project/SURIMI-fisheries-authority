@@ -174,7 +174,8 @@ namespace SURIMI_fisheries_authority.Tests
                 new QuotaShareLoader(CreateQuotaShareBlobStore(), NullLogger<QuotaShareLoader>.Instance),
                 new RecruitmentLoader(CreateRecruitmentBlobStore(), NullLogger<RecruitmentLoader>.Instance),
                 new InitialQuotaLoader(CreateInitialQuotaBlobStore(), NullLogger<InitialQuotaLoader>.Instance),
-                diagnostics.Object);
+                diagnostics.Object,
+                new SwitchableRandomService());
 
             await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract());
             await service.CreateRegulationsAsync(CreateRegulationSummary());

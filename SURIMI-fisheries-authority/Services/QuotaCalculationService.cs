@@ -13,6 +13,7 @@ namespace SURIMI_fisheries_authority.Services
         private readonly RecruitmentLoader m_recruitmentLoader;
         private readonly InitialQuotaLoader m_initialQuotaLoader;
         private readonly IMseDiagnosticsRecorder m_diagnostics;
+        private readonly SwitchableRandomService m_randomService;
 
 
         public string m_SimulationId { get; private set; } = string.Empty;
@@ -29,7 +30,7 @@ namespace SURIMI_fisheries_authority.Services
         private bool m_IsBiomassAllreadyAssigned = false;       // if biomass in not assigned, MSE is not initialised yet , so we cannot calculate Fish1 factor for catch disposition. 
 
 
-        public QuotaCalculationService(ILogger<QuotaCalculationService> logger, IMSEStockRecruitment stockRecruitment, IMSEQuotaCalculator quotaCalculator, QuotaShareLoader quotaShareLoader, RecruitmentLoader recruitmentLoader, InitialQuotaLoader initialQuotaLoader, IMseDiagnosticsRecorder diagnostics)
+        public QuotaCalculationService(ILogger<QuotaCalculationService> logger, IMSEStockRecruitment stockRecruitment, IMSEQuotaCalculator quotaCalculator, QuotaShareLoader quotaShareLoader, RecruitmentLoader recruitmentLoader, InitialQuotaLoader initialQuotaLoader, IMseDiagnosticsRecorder diagnostics, SwitchableRandomService randomService)
         {
             m_logger = logger;
             m_stockRecruitment = stockRecruitment;
@@ -38,16 +39,18 @@ namespace SURIMI_fisheries_authority.Services
             m_recruitmentLoader = recruitmentLoader;
             m_initialQuotaLoader = initialQuotaLoader;
             m_diagnostics = diagnostics;
+            m_randomService = randomService;
         }
 
-        public async Task InitialiseSimulationAsync(string simulationId, string scenarioName, SurimiContract surimiContract, CancellationToken cancellationToken = default)
+        public async Task InitialiseSimulationAsync(string simulationId, string scenarioName, SurimiContract surimiContract, CancellationToken cancellationToken = default, bool isMseRun = true)
         {
             m_SimulationId = simulationId;
             m_SurimiContract = surimiContract;
             m_ScenarioName = scenarioName;
             // EwECore VB arrays are 1-based with inclusive sizing. To keep the same indexing, we allocate nGroups + 1 elements and ignore index 0.
             
-            m_logger.LogInformation("Initialized simulation {SimulationId} ", simulationId);
+            m_randomService.Mode = isMseRun ? RandomMode.Random : RandomMode.Constant;
+            m_logger.LogInformation("Initialized simulation {SimulationId} (IsMseRun={IsMseRun}, RandomMode={RandomMode})", simulationId, isMseRun, m_randomService.Mode);
 
             m_QuotaShares = await m_quotaShareLoader.LoadAsync(m_ScenarioName, cancellationToken);
             ValidateQuotaSharesMatchContract(m_QuotaShares, surimiContract, m_ScenarioName);

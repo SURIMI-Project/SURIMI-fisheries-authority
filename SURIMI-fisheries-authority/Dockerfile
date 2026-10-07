@@ -29,8 +29,7 @@ RUN --mount=type=secret,id=GITHUB_TOKEN \
     --name github-Official-EwE \
     --username github \
     --password "$(cat /run/secrets/GITHUB_TOKEN)" \
-    --store-password-in-clear-text \
-    --configfile NuGet.config; \
+    --store-password-in-clear-text; \
     fi
 
 # Add authentication for github-Surimi-project GitHub Packages (pass via: --secret id=GITHUB_TOKEN,env=GITHUB_TOKEN)
@@ -41,8 +40,7 @@ RUN --mount=type=secret,id=GITHUB_TOKEN \
     --name github-Surimi-project \
     --username github \
     --password "$(cat /run/secrets/GITHUB_TOKEN)" \
-    --store-password-in-clear-text \
-    --configfile NuGet.config; \
+    --store-password-in-clear-text; \
     fi
 
 # Add authentication for BSR (pass via: --secret id=BSR_TOKEN,env=BSR_TOKEN)
@@ -53,8 +51,7 @@ RUN --mount=type=secret,id=BSR_TOKEN \
     --name BSR \
     --username bsr \
     --password "$(cat /run/secrets/BSR_TOKEN)" \
-    --store-password-in-clear-text \
-    --configfile NuGet.config; \
+    --store-password-in-clear-text; \
     fi
 
 COPY ["SURIMI-fisheries-authority/SURIMI-fisheries-authority.csproj", "SURIMI-fisheries-authority/"]

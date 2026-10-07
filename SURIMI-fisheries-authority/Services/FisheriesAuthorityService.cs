@@ -33,7 +33,7 @@ namespace SURIMI_fisheries_authority.Services
                 var quotaCalculationService = m_simulationScopeManager.CreateSimulationScope(request.SimulationId);
                 try
                 {
-                    await quotaCalculationService.InitialiseSimulationAsync(request.SimulationId, request.ScenarioName, surimiContract, context.CancellationToken);
+                    await quotaCalculationService.InitialiseSimulationAsync(request.SimulationId, request.ScenarioName, surimiContract, context.CancellationToken, request.IsMseRun);
                 }
                 catch
                 {
