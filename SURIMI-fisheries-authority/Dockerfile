@@ -10,7 +10,7 @@ EXPOSE 5493
 ENV ASPNETCORE_HTTP_PORTS=5493
 ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 #ENV OTEL_EXPORTER_OTLP_PROTOCOL=grpc
-ENV OTEL_SERVICE_NAME=ValueChain
+ENV OTEL_SERVICE_NAME=FisheriesAuthority
 
 
 # This stage is used to build the service project
