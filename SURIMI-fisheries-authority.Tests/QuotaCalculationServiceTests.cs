@@ -96,12 +96,37 @@ namespace SURIMI_fisheries_authority.Tests
                 new QuotaShareLoader(CreateMatchingQuotaShareBlobStore(), NullLogger<QuotaShareLoader>.Instance),
                 new RecruitmentLoader(recruitmentBlobStore, NullLogger<RecruitmentLoader>.Instance),
                 new InitialQuotaLoader(initialQuotaBlobStore, NullLogger<InitialQuotaLoader>.Instance),
-                new Mock<IMseDiagnosticsRecorder>().Object);
+                new Mock<IMseDiagnosticsRecorder>().Object,
+                new SwitchableRandomService());
 
             return (service, stockRecruitment, quotaCalculator);
         }
 
         private static QuotaCalculationService CreateService() => CreateServiceWithMocks().Service;
+
+        [Theory]
+        [InlineData(true, RandomMode.Random)]
+        [InlineData(false, RandomMode.Constant)]
+        public async Task InitialiseSimulation_SetsRandomModeFromIsMseRun(bool isMseRun, RandomMode expectedMode)
+        {
+            // Arrange
+            var randomService = new SwitchableRandomService();
+            var service = new QuotaCalculationService(
+                NullLogger<QuotaCalculationService>.Instance,
+                new Mock<IMSEStockRecruitment>().Object,
+                new Mock<IMSEQuotaCalculator>().Object,
+                new QuotaShareLoader(CreateMatchingQuotaShareBlobStore(), NullLogger<QuotaShareLoader>.Instance),
+                new RecruitmentLoader(CreateMatchingRecruitmentBlobStore(), NullLogger<RecruitmentLoader>.Instance),
+                new InitialQuotaLoader(CreateMatchingInitialQuotaBlobStore(), NullLogger<InitialQuotaLoader>.Instance),
+                new Mock<IMseDiagnosticsRecorder>().Object,
+                randomService);
+
+            // Act
+            await service.InitialiseSimulationAsync("sim-1", ScenarioName, CreateContract(), CancellationToken.None, isMseRun);
+
+            // Assert
+            randomService.Mode.Should().Be(expectedMode);
+        }
 
         private static SurimiContract CreateContract()
         {
@@ -503,7 +528,8 @@ namespace SURIMI_fisheries_authority.Tests
                         "KHE,,25000\n" +
                         "XXX,,1000\n"),
                     NullLogger<InitialQuotaLoader>.Instance),
-                new Mock<IMseDiagnosticsRecorder>().Object);
+                new Mock<IMseDiagnosticsRecorder>().Object,
+                new SwitchableRandomService());
 
             // Act & Assert
             // Initial quota validation happens during InitialiseSimulationAsync, before regulations are created
@@ -586,7 +612,8 @@ namespace SURIMI_fisheries_authority.Tests
                 new QuotaShareLoader(CreateQuotaShareBlobStore(csvContent), NullLogger<QuotaShareLoader>.Instance),
                 new RecruitmentLoader(CreateMatchingRecruitmentBlobStore(), NullLogger<RecruitmentLoader>.Instance),
                 new InitialQuotaLoader(CreateMatchingInitialQuotaBlobStore(), NullLogger<InitialQuotaLoader>.Instance),
-                new Mock<IMseDiagnosticsRecorder>().Object);
+                new Mock<IMseDiagnosticsRecorder>().Object,
+                new SwitchableRandomService());
         }
 
         [Fact]
