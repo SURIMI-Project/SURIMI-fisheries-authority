@@ -10,6 +10,7 @@ jobs:
 
     steps:
       - name: Use custom NuGet build test check action
-        uses: SURIMI-Project/Surimi-GithubActions/BuildTestCheckUbuntuBSR@master
+        uses: SURIMI-Project/Surimi-GithubActions/BuildCheckUbuntuBSR@master
         with:
           bsr-token: ${{ secrets.BSR_TOKEN }}
+          run-tests: true
