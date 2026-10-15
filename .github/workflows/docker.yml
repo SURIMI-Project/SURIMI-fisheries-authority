@@ -10,28 +10,13 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: Build Docker image
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BSR_TOKEN: ${{ secrets.BSR_TOKEN }}
-        run: |
-          docker build \
-            -f ./SURIMI-fisheries-authority/Dockerfile \
-            -t ghcr.io/surimi-project/surimifisheriesauthority:latest \
-            --secret id=GITHUB_TOKEN,env=GITHUB_TOKEN \
-            --secret id=BSR_TOKEN,env=BSR_TOKEN \
-            .
-
-      - name: Push Docker image
-        run: |
-          docker push ghcr.io/surimi-project/surimifisheriesauthority:latest
+      - name: Build, push and tag Docker image
+        uses: SURIMI-Project/Surimi-GithubActions/ReleaseDockerUbuntuBSR@master
+        with:
+          image-name: ghcr.io/surimi-project/surimifisheriesauthority
+          bsr-token: ${{ secrets.BSR_TOKEN }}
+          dockerfile: ./SURIMI-fisheries-authority/Dockerfile
