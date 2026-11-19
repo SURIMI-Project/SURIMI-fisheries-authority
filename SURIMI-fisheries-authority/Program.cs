@@ -79,6 +79,10 @@ namespace SURIMI_fisheries_authority
 
             LoadVaultSecretsInEnvironmentVariables();
 
+            logger.LogInformation("Initializing blob storage before accepting requests");
+            _ = app.Services.GetRequiredService<IBlobStore>();
+            logger.LogInformation("Blob storage initialized");
+
             app.Run();
         }
 
